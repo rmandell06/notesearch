@@ -23,4 +23,3 @@ Select one:
 If you cloned locally, list the commands you used:
 
 N/A – used GitHub web interface
-Repository initialization complete.
