@@ -1,0 +1,60 @@
+# BPE Tokenizer — Implementation Plan
+
+---
+
+## Step 1
+
+- Load SNLI, MultiNLI, SciTail, QNLI, arXiv using `datasets.load_dataset()`
+- Filter each to entailment pairs only
+- Flatten everything into a single list of strings
+- Lowercase and normalize whitespace
+
+---
+
+## Step 2 
+
+- Split every word into individual characters with a `</w>` end-of-word marker
+- Count word frequencies across the full corpus
+
+---
+
+## Step 3 
+
+- Iteratively find the most frequent adjacent symbol pair
+- Merge it everywhere in the vocabulary and record the rule
+- Repeat for 30,000 iterations in pure Python — no external tokenizer libraries
+
+---
+
+## Step 4 
+
+- Add special tokens first with fixed IDs: `[PAD]=0 [UNK]=1 [CLS]=2 [SEP]=3 [MASK]=4`
+- Build `token→id` and `id→token` dicts from all merged tokens
+- Final vocab size: 30,000
+
+---
+
+## Step 5 
+
+- Save `merges.json` — ordered list of merge rules (order is critical)
+- Save `vocab.json` — token to ID mapping
+
+---
+
+## Step 6
+
+- Write `encode_for_model()` — applies merge rules in training order, wraps with CLS/SEP, truncates to 510 content tokens, pads to 512, returns `input_ids` and `attention_mask`
+
+---
+
+## Step 7 
+
+- Write `decode()` — converts IDs back to text, strips special tokens and `</w>` markers
+
+---
+
+## Step 8 
+
+- Encode a few test sentences and decode them back
+- Verify decoded output matches the original input
+- Check that padding and attention mask lengths are both exactly 512
