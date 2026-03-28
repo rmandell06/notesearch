@@ -1,0 +1,60 @@
+## Backend System Overview
+
+The backend handles data storage, semantic processing, and communication between the frontend, browser extension, and machine learning components. It is designed to efficiently process user inputs, generate embeddings, and return relevant results with low latency.
+
+---
+
+## Core Responsibilities
+
+### 1. Note Storage & Management  
+The backend manages all user notes, including uploaded documents, extracted webpage content, and manually created notes. Each note is stored with metadata such as timestamps, tags, and source type (file, browser, or voice).
+
+### 2. Content Processing Pipeline  
+Incoming content is processed before storage to enable semantic search:
+- Cleaning and parsing raw text  
+- Chunking text into smaller segments  
+- Storing both raw and processed versions  
+
+### 3. Embedding & Vectorization  
+Text is converted into vector representations using transformer-based models. These embeddings capture semantic meaning, allowing retrieval beyond exact keyword matches.
+
+Embeddings are generated asynchronously and stored in a vector database for efficient similarity search.
+
+### 4. Semantic Search Engine  
+The backend powers search by:
+- Converting queries into embeddings  
+- Performing cosine similarity matching  
+- Ranking results based on relevance  
+
+This allows users to find notes based on meaning, not exact phrasing.
+
+### 5. Connections & Relationship Mapping  
+Similarity scores between notes are computed to identify relationships. These are used to power the connections view, linking notes with related concepts.
+
+### 6. API Layer  
+A REST API (FastAPI) handles communication between frontend and backend. Key endpoints include:
+- Note upload and retrieval  
+- Search queries  
+- Embedding generation  
+- Related notes  
+
+The API is modular and designed for scalability.
+
+### 7. Voice Processing (Optional)  
+Voice memos can be transcribed into text and processed through the same pipeline as other notes.
+
+---
+
+## System Design Principles
+
+- Asynchronous processing for embeddings and transcription  
+- Modular architecture (routes, services, data layers)  
+- Scalable storage and retrieval  
+- Low-latency semantic search  
+- Extensible for future features  
+
+---
+
+## Data Flow
+
+User uploads or saves content → backend processes and chunks text → embeddings are generated and stored → user submits a query → query is vectorized → similar note chunks are retrieved → ranked results are returned
