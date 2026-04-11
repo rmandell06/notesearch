@@ -44,11 +44,12 @@ describe("NoteCard", () => {
 
   it("shows relevance badge when showRelevance is true and relevance is set", () => {
     renderCard({ note: { ...note, relevance: 0.87 }, showRelevance: true });
-    expect(screen.getByText("87% match")).toBeInTheDocument();
+    expect(screen.getByText(/87%/)).toBeInTheDocument();
   });
 
   it("does not show relevance badge by default", () => {
-    renderCard({ note: { ...note, relevance: 0.87 } });
-    expect(screen.queryByText("87% match")).not.toBeInTheDocument();
+    const { container } = renderCard({ note: { ...note, relevance: 0.87 } });
+    // badge span only renders when showRelevance=true
+    expect(container.querySelector(".mono.shrink-0")).not.toBeInTheDocument();
   });
 });

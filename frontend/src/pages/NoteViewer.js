@@ -69,6 +69,14 @@ ColBERT (Contextualized Late Interaction) keeps token-level representations and 
   },
 };
 
+const TAG_PALETTE = [
+  { color: "#00e5ff", shadow: "rgba(0,229,255,0.35)" },
+  { color: "#bf5af2", shadow: "rgba(191,90,242,0.35)" },
+  { color: "#32d74b", shadow: "rgba(50,215,75,0.35)" },
+  { color: "#ff9f0a", shadow: "rgba(255,159,10,0.35)" },
+  { color: "#ff375f", shadow: "rgba(255,55,95,0.35)" },
+];
+
 export default function NoteViewer() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -76,11 +84,15 @@ export default function NoteViewer() {
 
   if (!note) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-400 mb-4">Note not found.</p>
-          <button onClick={() => navigate(-1)} className="text-sm text-blue-500 hover:underline">
-            Go back
+          <p className="mono text-sm mb-4" style={{ color: "#3a3a5a" }}>// note not found</p>
+          <button
+            onClick={() => navigate(-1)}
+            className="mono text-xs transition-colors"
+            style={{ color: "#00e5ff", textShadow: "0 0 8px rgba(0,229,255,0.4)" }}
+          >
+            ← go back
           </button>
         </div>
       </div>
@@ -88,38 +100,67 @@ export default function NoteViewer() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
-      <header className="px-6 py-4 border-b border-gray-100 flex items-center gap-4">
+    <div className="min-h-screen">
+      <header
+        className="px-6 py-4 flex items-center gap-4"
+        style={{ borderBottom: "1px solid #1a1a2e" }}
+      >
         <button
           onClick={() => navigate(-1)}
-          className="text-sm text-gray-400 hover:text-gray-700 flex items-center gap-1"
+          className="mono text-xs transition-colors flex items-center gap-1"
+          style={{ color: "#3a3a5a" }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "#00e5ff")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "#3a3a5a")}
         >
-          ← Back
+          ← back
         </button>
-        <a href="/" className="text-lg font-semibold tracking-tight text-gray-900">NoteSearch</a>
+        <a href="/" className="mono text-base font-bold tracking-tight neon-cyan" style={{ textDecoration: "none" }}>
+          note<span style={{ color: "#bf5af2", textShadow: "0 0 8px rgba(191,90,242,0.55)" }}>search</span>
+          <span style={{ color: "#3a3a5a" }}>.app</span>
+        </a>
       </header>
 
       <main className="max-w-2xl mx-auto px-6 pt-10 pb-20">
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-gray-900 mb-2">{note.title}</h1>
-          <div className="flex items-center gap-3 text-sm text-gray-400">
-            <span>{note.date}</span>
-            <span>·</span>
-            <div className="flex gap-2">
-              {note.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded text-xs"
-                >
-                  {tag}
-                </span>
-              ))}
+        <div className="mb-8">
+          <h1 className="text-xl font-semibold mb-3" style={{ color: "#e2e2f0" }}>
+            {note.title}
+          </h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="mono text-xs" style={{ color: "#252540" }}>{note.date}</span>
+            <span style={{ color: "#1e1e32" }}>·</span>
+            <div className="flex gap-2 flex-wrap">
+              {note.tags.map((tag, i) => {
+                const p = TAG_PALETTE[i % TAG_PALETTE.length];
+                return (
+                  <span
+                    key={tag}
+                    className="mono text-xs px-2 py-0.5 rounded"
+                    style={{
+                      color: p.color,
+                      background: `rgba(${p.color === "#00e5ff" ? "0,229,255" : p.color === "#bf5af2" ? "191,90,242" : p.color === "#32d74b" ? "50,215,75" : "255,159,10"}, 0.07)`,
+                      border: `1px solid ${p.color}30`,
+                      textShadow: `0 0 8px ${p.shadow}`,
+                    }}
+                  >
+                    #{tag}
+                  </span>
+                );
+              })}
             </div>
           </div>
         </div>
 
-        <div className="border-t border-gray-100 pt-6">
-          <pre className="whitespace-pre-wrap font-sans text-gray-700 text-sm leading-relaxed">
+        <div
+          className="rounded-xl p-6"
+          style={{
+            background: "#0e0e1c",
+            border: "1.5px solid #1a1a2e",
+          }}
+        >
+          <pre
+            className="whitespace-pre-wrap text-sm leading-relaxed"
+            style={{ fontFamily: "'Space Mono', monospace", color: "#8888aa" }}
+          >
             {note.body}
           </pre>
         </div>

@@ -36,24 +36,38 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
-      <header className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-        <span className="text-lg font-semibold tracking-tight text-gray-900">NoteSearch</span>
-        <nav className="flex gap-5 text-sm text-gray-500">
-          <a href="/" className="hover:text-gray-900">Home</a>
+    <div className="min-h-screen">
+      <header
+        className="px-6 py-4 flex items-center justify-between"
+        style={{ borderBottom: "1px solid #1a1a2e" }}
+      >
+        <span className="mono text-base font-bold tracking-tight neon-cyan">
+          note<span style={{ color: "#bf5af2", textShadow: "0 0 8px rgba(191,90,242,0.55)" }}>search</span>
+          <span style={{ color: "#3a3a5a" }}>.app</span>
+        </span>
+        <nav className="flex gap-6 text-sm" style={{ color: "#4a4a6a" }}>
+          <a href="/" style={{ color: "#4a4a6a" }} className="hover:text-white transition-colors">home</a>
           <button
             onClick={() => setShowUpload((v) => !v)}
-            className="hover:text-gray-900 cursor-pointer"
+            className="hover:text-white transition-colors cursor-pointer mono text-xs"
+            style={{ color: showUpload ? "#00e5ff" : "#4a4a6a" }}
           >
-            Upload
+            {showUpload ? "[ close ]" : "[ upload ]"}
           </button>
         </nav>
       </header>
 
-      <main className="max-w-2xl mx-auto px-6 pt-24 pb-16">
-        <div className="text-center mb-10">
-          <h1 className="text-3xl font-semibold text-gray-900 mb-2">Search your notes</h1>
-          <p className="text-gray-400 text-sm">Find anything across all your uploads using semantic search</p>
+      <main className="max-w-2xl mx-auto px-6 pt-20 pb-16">
+        <div className="text-center mb-12">
+          <p className="mono text-xs mb-3" style={{ color: "#3a3a5a", letterSpacing: "0.15em" }}>
+            semantic note search
+          </p>
+          <h1 className="mono text-4xl font-bold mb-4 gradient-text" style={{ lineHeight: 1.15 }}>
+            find what you<br />actually meant
+          </h1>
+          <p className="text-sm" style={{ color: "#4a4a6a" }}>
+            search by meaning, not just keywords — your notes, semantically indexed
+          </p>
         </div>
 
         <SearchBar onSearch={handleSearch} />
@@ -64,8 +78,13 @@ export default function Home() {
           </div>
         )}
 
-        <section className="mt-14">
-          <h2 className="text-xs font-medium text-gray-400 uppercase tracking-widest mb-4">Recent notes</h2>
+        <section className="mt-16">
+          <h2
+            className="mono text-xs mb-5"
+            style={{ color: "#3a3a5a", letterSpacing: "0.18em" }}
+          >
+            // recent notes
+          </h2>
           <div className="flex flex-col gap-3">
             {RECENT_NOTES.map((note) => (
               <NoteCard key={note.id} note={note} />
