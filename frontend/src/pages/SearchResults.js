@@ -40,9 +40,15 @@ export default function SearchResults() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
-      <header className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-        <a href="/" className="text-lg font-semibold tracking-tight text-gray-900">NoteSearch</a>
+    <div className="min-h-screen">
+      <header
+        className="px-6 py-4 flex items-center justify-between"
+        style={{ borderBottom: "1px solid #1a1a2e" }}
+      >
+        <a href="/" className="mono text-base font-bold tracking-tight neon-cyan" style={{ textDecoration: "none" }}>
+          note<span style={{ color: "#bf5af2", textShadow: "0 0 8px rgba(191,90,242,0.55)" }}>search</span>
+          <span style={{ color: "#3a3a5a" }}>.app</span>
+        </a>
       </header>
 
       <main className="max-w-2xl mx-auto px-6 pt-8 pb-16">
@@ -50,8 +56,11 @@ export default function SearchResults() {
           <SearchBar onSearch={handleSearch} initialValue={query} />
         </div>
 
-        <p className="text-sm text-gray-400 mb-5">
-          {results.length} results for <span className="text-gray-700 font-medium">"{query}"</span>
+        <p className="mono text-xs mb-5" style={{ color: "#3a3a5a", letterSpacing: "0.05em" }}>
+          {results.length} results for{" "}
+          <span style={{ color: "#00e5ff", textShadow: "0 0 8px rgba(0,229,255,0.4)" }}>
+            "{query}"
+          </span>
         </p>
 
         <div className="flex flex-col gap-3">
