@@ -1,37 +1,30 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import SearchBar from "../components/SearchBar";
 import NoteCard from "../components/NoteCard";
-
-const MOCK_RESULTS = [
-  {
-    id: "2",
-    title: "Research: vector embeddings",
-    preview: "Explored cosine similarity vs dot product for nearest-neighbor search. Sentence transformers outperform bag-of-words significantly on semantic tasks...",
-    date: "Mar 27, 2026",
-    relevance: 0.94,
-  },
-  {
-    id: "1",
-    title: "Meeting notes — Q2 planning",
-    preview: "Discussed roadmap priorities for Q2. Key themes: search UX, onboarding flow, and performance benchmarks for the embedding pipeline...",
-    date: "Mar 30, 2026",
-    relevance: 0.81,
-  },
-  {
-    id: "4",
-    title: "Notes on information retrieval",
-    preview: "TF-IDF vs dense retrieval. BM25 is a strong baseline but struggles with paraphrase and synonym matching where embedding models excel...",
-    date: "Mar 18, 2026",
-    relevance: 0.76,
-  },
-];
+import { searchNotes } from "../api";
 
 export default function SearchResults() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const query = searchParams.get("q") || "";
-  const [results] = useState(MOCK_RESULTS);
+
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!query.trim()) return;
+
+    setLoading(true);
+    setError(null);
+    setResults([]);
+
+    searchNotes(query)
+      .then((data) => setResults(data.results ?? data))
+      .catch((err) => setError(err.message || "Search failed"))
+      .finally(() => setLoading(false));
+  }, [query]);
 
   function handleSearch(newQuery) {
     if (newQuery.trim()) {
@@ -56,18 +49,46 @@ export default function SearchResults() {
           <SearchBar onSearch={handleSearch} initialValue={query} />
         </div>
 
-        <p className="mono text-xs mb-5" style={{ color: "#3a3a5a", letterSpacing: "0.05em" }}>
-          {results.length} results for{" "}
-          <span style={{ color: "#00e5ff", textShadow: "0 0 8px rgba(0,229,255,0.4)" }}>
-            "{query}"
-          </span>
-        </p>
+        {loading && (
+          <p className="mono text-xs text-center py-10" style={{ color: "#3a3a5a" }} role="status" aria-label="loading">
+            searching...
+          </p>
+        )}
 
-        <div className="flex flex-col gap-3">
-          {results.map((note) => (
-            <NoteCard key={note.id} note={note} showRelevance />
-          ))}
-        </div>
+        {error && !loading && (
+          <div
+            className="rounded-xl px-4 py-3 mono text-xs"
+            role="alert"
+            style={{ background: "rgba(255,45,85,0.07)", border: "1.5px solid rgba(255,45,85,0.2)", color: "#ff2d55" }}
+          >
+            something went wrong — {error}
+          </div>
+        )}
+
+        {!loading && !error && results.length === 0 && query && (
+          <div className="text-center py-14">
+            <p className="mono text-xs mb-1" style={{ color: "#3a3a5a" }}>// no results</p>
+            <p className="text-sm" style={{ color: "#252540" }}>
+              nothing matched <span style={{ color: "#00e5ff" }}>"{query}"</span>
+            </p>
+          </div>
+        )}
+
+        {!loading && !error && results.length > 0 && (
+          <>
+            <p className="mono text-xs mb-5" style={{ color: "#3a3a5a", letterSpacing: "0.05em" }}>
+              {results.length} results for{" "}
+              <span style={{ color: "#00e5ff", textShadow: "0 0 8px rgba(0,229,255,0.4)" }}>
+                "{query}"
+              </span>
+            </p>
+            <div className="flex flex-col gap-3">
+              {results.map((note) => (
+                <NoteCard key={note.id} note={note} showRelevance />
+              ))}
+            </div>
+          </>
+        )}
       </main>
     </div>
   );

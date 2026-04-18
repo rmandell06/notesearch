@@ -1,6 +1,8 @@
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { getNote } from "../api";
 
-const NOTES = {
+const MOCK_NOTES = {
   "1": {
     title: "Meeting notes — Q2 planning",
     date: "Mar 30, 2026",
@@ -80,24 +82,27 @@ const TAG_PALETTE = [
 export default function NoteViewer() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const note = NOTES[id];
 
-  if (!note) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="mono text-sm mb-4" style={{ color: "#3a3a5a" }}>// note not found</p>
-          <button
-            onClick={() => navigate(-1)}
-            className="mono text-xs transition-colors"
-            style={{ color: "#00e5ff", textShadow: "0 0 8px rgba(0,229,255,0.4)" }}
-          >
-            ← go back
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const [note, setNote] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+
+    getNote(id)
+      .then((data) => setNote(data))
+      .catch(() => {
+        const fallback = MOCK_NOTES[id];
+        if (fallback) {
+          setNote(fallback);
+        } else {
+          setError("Note not found");
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [id]);
 
   return (
     <div className="min-h-screen">
@@ -121,49 +126,73 @@ export default function NoteViewer() {
       </header>
 
       <main className="max-w-2xl mx-auto px-6 pt-10 pb-20">
-        <div className="mb-8">
-          <h1 className="text-xl font-semibold mb-3" style={{ color: "#e2e2f0" }}>
-            {note.title}
-          </h1>
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="mono text-xs" style={{ color: "#252540" }}>{note.date}</span>
-            <span style={{ color: "#1e1e32" }}>·</span>
-            <div className="flex gap-2 flex-wrap">
-              {note.tags.map((tag, i) => {
-                const p = TAG_PALETTE[i % TAG_PALETTE.length];
-                return (
-                  <span
-                    key={tag}
-                    className="mono text-xs px-2 py-0.5 rounded"
-                    style={{
-                      color: p.color,
-                      background: `rgba(${p.color === "#00e5ff" ? "0,229,255" : p.color === "#bf5af2" ? "191,90,242" : p.color === "#32d74b" ? "50,215,75" : "255,159,10"}, 0.07)`,
-                      border: `1px solid ${p.color}30`,
-                      textShadow: `0 0 8px ${p.shadow}`,
-                    }}
-                  >
-                    #{tag}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+        {loading && (
+          <p className="mono text-xs text-center py-10" style={{ color: "#3a3a5a" }} role="status">
+            loading...
+          </p>
+        )}
 
-        <div
-          className="rounded-xl p-6"
-          style={{
-            background: "#0e0e1c",
-            border: "1.5px solid #1a1a2e",
-          }}
-        >
-          <pre
-            className="whitespace-pre-wrap text-sm leading-relaxed"
-            style={{ fontFamily: "'Space Mono', monospace", color: "#8888aa" }}
-          >
-            {note.body}
-          </pre>
-        </div>
+        {error && !loading && (
+          <div className="text-center py-10">
+            <p className="mono text-xs mb-4" style={{ color: "#3a3a5a" }}>// {error}</p>
+            <button
+              onClick={() => navigate(-1)}
+              className="mono text-xs transition-colors"
+              style={{ color: "#00e5ff", textShadow: "0 0 8px rgba(0,229,255,0.4)" }}
+            >
+              ← go back
+            </button>
+          </div>
+        )}
+
+        {note && !loading && (
+          <>
+            <div className="mb-8">
+              <h1 className="text-xl font-semibold mb-3" style={{ color: "#e2e2f0" }}>
+                {note.title}
+              </h1>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="mono text-xs" style={{ color: "#252540" }}>{note.date}</span>
+                {note.tags?.length > 0 && (
+                  <>
+                    <span style={{ color: "#1e1e32" }}>·</span>
+                    <div className="flex gap-2 flex-wrap">
+                      {note.tags.map((tag, i) => {
+                        const p = TAG_PALETTE[i % TAG_PALETTE.length];
+                        return (
+                          <span
+                            key={tag}
+                            className="mono text-xs px-2 py-0.5 rounded"
+                            style={{
+                              color: p.color,
+                              background: `${p.color}12`,
+                              border: `1px solid ${p.color}30`,
+                              textShadow: `0 0 8px ${p.shadow}`,
+                            }}
+                          >
+                            #{tag}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div
+              className="rounded-xl p-6"
+              style={{ background: "#0e0e1c", border: "1.5px solid #1a1a2e" }}
+            >
+              <pre
+                className="whitespace-pre-wrap text-sm leading-relaxed"
+                style={{ fontFamily: "'Space Mono', monospace", color: "#8888aa" }}
+              >
+                {note.body ?? note.raw_content ?? note.processed_content}
+              </pre>
+            </div>
+          </>
+        )}
       </main>
     </div>
   );
