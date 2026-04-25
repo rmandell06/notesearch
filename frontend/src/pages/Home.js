@@ -60,6 +60,7 @@ export default function Home() {
         </span>
         <nav className="flex gap-6 text-sm" style={{ color: "#4a4a6a" }}>
           <a href="/" style={{ color: "#4a4a6a" }} className="hover:text-white transition-colors">home</a>
+          <a href="/connections" className="hover:text-white transition-colors mono text-xs" style={{ color: "#4a4a6a" }}>connections</a>
           <button
             onClick={() => setShowUpload((v) => !v)}
             className="hover:text-white transition-colors cursor-pointer mono text-xs"

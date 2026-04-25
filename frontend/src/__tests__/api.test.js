@@ -1,4 +1,4 @@
-import { searchNotes, getRecentNotes, getNote, uploadFile } from "../api";
+import { searchNotes, getRecentNotes, getNote, uploadFile, getConnections } from "../api";
 
 function mockFetch(body, ok = true, status = 200) {
   global.fetch = jest.fn().mockResolvedValue({
@@ -80,5 +80,28 @@ describe("getRecentNotes", () => {
       expect.stringContaining("/api/notes"),
       expect.anything()
     );
+  });
+});
+
+describe("getConnections", () => {
+  it("calls the correct endpoint", async () => {
+    mockFetch({ nodes: [], links: [] });
+    await getConnections();
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/connections/"),
+      expect.anything()
+    );
+  });
+
+  it("returns parsed graph data", async () => {
+    const graph = { nodes: [{ id: "1", title: "Test" }], links: [] };
+    mockFetch(graph);
+    const data = await getConnections();
+    expect(data).toEqual(graph);
+  });
+
+  it("throws when response is not ok", async () => {
+    mockFetch("Internal Server Error", false, 500);
+    await expect(getConnections()).rejects.toThrow();
   });
 });

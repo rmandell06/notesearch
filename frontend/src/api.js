@@ -26,3 +26,7 @@ export function uploadFile(file) {
   form.append("file", file);
   return request("/api/notes/upload", { method: "POST", body: form });
 }
+
+export function getConnections() {
+  return request("/api/connections/");
+}
