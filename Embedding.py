@@ -12,20 +12,21 @@ class FeedForward(nn.Module):
 
   def forward(self, x):
     x = self.linear_1(x)
-    
+
     x, gate = torch.chunk(x, 2, dim=-1)
-    x = torch.relu(x)
+    x = torch.nn.functional.silu(x)
     x = x * gate
-    
+
     x = self.linear_2(x)
     x = self.dropout(x)
     return x
 
 class Attention(nn.Module):
-  def __init__(self, d_model, heads, dropout):
+  def __init__(self, d_model, heads, dropout, max_seq_len, rope_base=10000.0):
     super(Attention, self).__init__()
     self.d_model = d_model
     self.heads = heads
+    self.head_dim = d_model // heads
 
     self.q_linear = nn.Linear(d_model, d_model)
     self.k_linear = nn.Linear(d_model, d_model)
@@ -33,7 +34,34 @@ class Attention(nn.Module):
     self.n_linear = nn.Linear(d_model, d_model)
 
     self.dropout = nn.Dropout(dropout)
-  
+
+    # Precompute RoPE frequencies
+    freqs = 1.0 / (rope_base ** (torch.arange(0, self.head_dim, 2).float() / self.head_dim))
+    positions = torch.arange(max_seq_len).float()
+    angles = torch.outer(positions, freqs)
+    self.register_buffer('rope_cos', torch.cos(angles))
+    self.register_buffer('rope_sin', torch.sin(angles))
+
+  def apply_rope(self, x):
+    """Apply rotary position embeddings. x shape: [batch, heads, seq_len, head_dim]"""
+    seq_len = x.shape[2]
+
+    # Split into even/odd dimensions
+    x1 = x[..., ::2]
+    x2 = x[..., 1::2]
+
+    # Get cos/sin for current sequence length
+    cos = self.rope_cos[:seq_len].unsqueeze(0).unsqueeze(0)
+    sin = self.rope_sin[:seq_len].unsqueeze(0).unsqueeze(0)
+
+    # Apply rotation and interleave back
+    rotated = torch.stack([
+        x1 * cos - x2 * sin,
+        x1 * sin + x2 * cos
+    ], dim=-1).flatten(-2)
+
+    return rotated
+
   def forward(self, x):
     key = self.k_linear(x)
     query = self.q_linear(x)
@@ -42,17 +70,21 @@ class Attention(nn.Module):
     batch_size = x.shape[0]
     seq_len = x.shape[1]
 
-    key = key.view(batch_size, seq_len, self.heads, self.d_model // self.heads)
-    query = query.view(batch_size, seq_len, self.heads, self.d_model // self.heads)
-    value = value.view(batch_size, seq_len, self.heads, self.d_model // self.heads)
+    key = key.view(batch_size, seq_len, self.heads, self.head_dim)
+    query = query.view(batch_size, seq_len, self.heads, self.head_dim)
+    value = value.view(batch_size, seq_len, self.heads, self.head_dim)
 
     key = key.transpose(1, 2)
     query = query.transpose(1, 2)
     value = value.transpose(1, 2)
 
+    # Apply RoPE to query and key (not value)
+    query = self.apply_rope(query)
+    key = self.apply_rope(key)
+
     result = query @ key.transpose(2, 3)
 
-    result = result / (self.d_model // self.heads) ** 0.5
+    result = result / self.head_dim ** 0.5
 
     result = torch.softmax(result, dim=3)
 
@@ -67,10 +99,10 @@ class Attention(nn.Module):
     return result
 
 class EncoderLayer(nn.Module):
-  def __init__(self, d_model, heads, dropout, ff_dim):
+  def __init__(self, d_model, heads, dropout, ff_dim, max_seq_len):
     super(EncoderLayer, self).__init__()
 
-    self.attention = Attention(d_model, heads, dropout)
+    self.attention = Attention(d_model, heads, dropout, max_seq_len)
     self.feed_forward = FeedForward(d_model, ff_dim, dropout)
 
     self.norm_1 = nn.LayerNorm(d_model)
@@ -81,31 +113,20 @@ class EncoderLayer(nn.Module):
     x = x + self.feed_forward(self.norm_2(x))
     return x
 
-  
-  class Encoder(nn.Module):
-    def __init__(self, d_model, heads, dropout, ff_dim, num_layers, vocab_size, max_seq_len):
-      super(Encoder, self).__init__()
-     
-      self.embedding = nn.Embedding(vocab_size, d_model)
-      self.pos_encoding = nn.Embedding(max_seq_len, d_model)
-      self.layers = nn.ModuleList([EncoderLayer(d_model, heads, dropout, ff_dim) for _ in range(num_layers)])
-      self.norm = nn.LayerNorm(d_model)
-      self.dropout = nn.Dropout(dropout)
+class Encoder(nn.Module):
+  def __init__(self, d_model, heads, dropout, ff_dim, num_layers, vocab_size, max_seq_len):
+    super(Encoder, self).__init__()
 
-    def forward(self, x):
-      x = self.embedding(x)
+    self.embedding = nn.Embedding(vocab_size, d_model)
+    self.layers = nn.ModuleList([EncoderLayer(d_model, heads, dropout, ff_dim, max_seq_len) for _ in range(num_layers)])
+    self.norm = nn.LayerNorm(d_model)
+    self.dropout = nn.Dropout(dropout)
 
-      a = torch.arange(x.shape[1]).to(x.device)
-      x = x + self.pos_encoding(a)
-     
-      x = self.dropout(x)
-      for layer in self.layers:
-        x = layer(x)
-      x = self.norm(x)
-      x = torch.mean(x, dim=1)
-      return x
-
-
-
-
-
+  def forward(self, x):
+    x = self.embedding(x)
+    x = self.dropout(x)
+    for layer in self.layers:
+      x = layer(x)
+    x = self.norm(x)
+    x = torch.mean(x, dim=1)
+    return x
