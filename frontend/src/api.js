@@ -39,23 +39,23 @@ export function logoutUser() {
 }
 
 export function searchNotes(query) {
-  return request(`/api/search?q=${encodeURIComponent(query)}`);
+  return request(`/search?q=${encodeURIComponent(query)}`);
 }
 
 export function getRecentNotes() {
-  return request("/api/notes?limit=10&sort=recent");
+  return request("/notes?limit=10&sort=recent");
 }
 
 export function getNote(id) {
-  return request(`/api/notes/${id}`);
+  return request(`/notes/${id}`);
 }
 
 export function uploadFile(file) {
   const form = new FormData();
   form.append("file", file);
-  return request("/api/notes/upload", { method: "POST", body: form });
+  return request("/notes/upload", { method: "POST", body: form });
 }
 
 export function getConnections() {
-  return request("/api/connections/");
+  return request("/connections/");
 }
