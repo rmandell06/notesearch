@@ -1,4 +1,4 @@
-import { searchNotes, getRecentNotes, getNote, uploadFile, getConnections } from "../api";
+import { searchNotes, getRecentNotes, getNote, uploadFile, getConnections, loginUser, signupUser, setAuthToken } from "../api";
 
 function mockFetch(body, ok = true, status = 200) {
   global.fetch = jest.fn().mockResolvedValue({
@@ -9,7 +9,10 @@ function mockFetch(body, ok = true, status = 200) {
   });
 }
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  setAuthToken(null);
+});
 
 describe("searchNotes", () => {
   it("calls the correct endpoint", async () => {
@@ -103,5 +106,58 @@ describe("getConnections", () => {
   it("throws when response is not ok", async () => {
     mockFetch("Internal Server Error", false, 500);
     await expect(getConnections()).rejects.toThrow();
+  });
+});
+
+describe("loginUser", () => {
+  it("calls the correct endpoint with email and password", async () => {
+    mockFetch({ access_token: "tok", user: {} });
+    await loginUser("a@b.com", "pass123");
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/login"),
+      expect.objectContaining({ method: "POST" })
+    );
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body).toEqual({ email: "a@b.com", password: "pass123" });
+  });
+
+  it("throws when credentials are invalid", async () => {
+    mockFetch("Invalid credentials", false, 401);
+    await expect(loginUser("a@b.com", "wrong")).rejects.toThrow();
+  });
+});
+
+describe("signupUser", () => {
+  it("calls the correct endpoint with email and password", async () => {
+    mockFetch({ access_token: "tok", user: {} });
+    await signupUser("new@user.com", "newpass");
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/signup"),
+      expect.objectContaining({ method: "POST" })
+    );
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body).toEqual({ email: "new@user.com", password: "newpass" });
+  });
+
+  it("throws when signup fails", async () => {
+    mockFetch("Email already taken", false, 409);
+    await expect(signupUser("taken@email.com", "pass")).rejects.toThrow();
+  });
+});
+
+describe("authenticated requests", () => {
+  it("includes Bearer token header when token is set", async () => {
+    mockFetch({ results: [] });
+    setAuthToken("my-secret-token");
+    await searchNotes("test");
+    const headers = global.fetch.mock.calls[0][1].headers;
+    expect(headers["Authorization"]).toBe("Bearer my-secret-token");
+  });
+
+  it("omits Authorization header when no token is set", async () => {
+    mockFetch({ results: [] });
+    await searchNotes("test");
+    const headers = global.fetch.mock.calls[0][1].headers;
+    expect(headers["Authorization"]).toBeUndefined();
   });
 });

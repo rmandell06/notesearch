@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import SearchBar from "../components/SearchBar";
 import NoteCard from "../components/NoteCard";
 import UploadArea from "../components/UploadArea";
-import { getRecentNotes } from "../api";
+import { getRecentNotes, logoutUser } from "../api";
+import { useAuth } from "../AuthContext";
 
 const FALLBACK_NOTES = [
   {
@@ -30,6 +31,13 @@ export default function Home() {
   const [showUpload, setShowUpload] = useState(false);
   const [notes, setNotes] = useState(FALLBACK_NOTES);
   const navigate = useNavigate();
+  const { logout } = useAuth() ?? {};
+
+  async function handleLogout() {
+    logoutUser().catch(() => {});
+    logout?.();
+    navigate("/login");
+  }
 
   useEffect(() => {
     getRecentNotes()
@@ -67,6 +75,13 @@ export default function Home() {
             style={{ color: showUpload ? "#00e5ff" : "#4a4a6a" }}
           >
             {showUpload ? "[ close ]" : "[ upload ]"}
+          </button>
+          <button
+            onClick={handleLogout}
+            className="hover:text-white transition-colors cursor-pointer mono text-xs"
+            style={{ color: "#4a4a6a" }}
+          >
+            [ logout ]
           </button>
         </nav>
       </header>

@@ -1,12 +1,41 @@
 const BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
+let _token = null;
+
+export function setAuthToken(token) {
+  _token = token;
+}
+
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, options);
+  const headers = { ...options.headers };
+  if (_token) headers["Authorization"] = `Bearer ${_token}`;
+
+  const res = await fetch(`${BASE}${path}`, { ...options, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(text || `Request failed with status ${res.status}`);
   }
   return res.json();
+}
+
+export function loginUser(email, password) {
+  return request("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function signupUser(email, password) {
+  return request("/auth/signup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function logoutUser() {
+  return request("/auth/logout", { method: "POST" });
 }
 
 export function searchNotes(query) {
