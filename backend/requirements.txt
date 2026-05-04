@@ -8,6 +8,8 @@ httpx
 supabase
 boto3
 python-multipart
+sentence-transformers
+pypdf
 
 pytest
 pytest-asyncio

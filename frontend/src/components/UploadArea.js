@@ -1,29 +1,56 @@
 import { useState, useRef } from "react";
+import { uploadFile } from "../api";
 
 export default function UploadArea() {
   const [dragging, setDragging] = useState(false);
   const [files, setFiles] = useState([]);
   const inputRef = useRef(null);
+  const uidRef = useRef(0);
 
-  function handleFiles(incoming) {
-    const list = Array.from(incoming);
-    setFiles((prev) => [...prev, ...list]);
+  function nextId() {
+    uidRef.current += 1;
+    return uidRef.current;
+  }
+
+  function addFiles(incoming) {
+    const entries = Array.from(incoming).map((file) => ({
+      id: nextId(),
+      file,
+      status: "uploading",
+      error: null,
+    }));
+    setFiles((prev) => [...prev, ...entries]);
+    entries.forEach(({ id, file }) => runUpload(id, file));
+  }
+
+  function runUpload(id, file) {
+    uploadFile(file)
+      .then(() => {
+        setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: "done" } : f)));
+      })
+      .catch((err) => {
+        setFiles((prev) =>
+          prev.map((f) => (f.id === id ? { ...f, status: "error", error: err.message } : f))
+        );
+      });
   }
 
   function handleDrop(e) {
     e.preventDefault();
     setDragging(false);
-    handleFiles(e.dataTransfer.files);
+    addFiles(e.dataTransfer.files);
   }
 
   function handleChange(e) {
-    handleFiles(e.target.files);
+    addFiles(e.target.files);
     e.target.value = "";
   }
 
-  function removeFile(index) {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
+  function removeFile(id) {
+    setFiles((prev) => prev.filter((f) => f.id !== id));
   }
+
+  const statusColor = { uploading: "#4a4a6a", done: "#32d74b", error: "#ff2d55" };
 
   return (
     <div>
@@ -82,13 +109,13 @@ export default function UploadArea() {
 
       {files.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1.5" aria-label="Uploaded files">
-          {files.map((file, i) => (
+          {files.map(({ id, file, status, error }, i) => (
             <li
-              key={i}
+              key={id}
               className="flex items-center justify-between px-3 py-2 rounded-lg text-sm"
               style={{ background: "#0e0e1c", border: "1.5px solid #1a1a2e" }}
             >
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 <span className="mono text-xs" style={{ color: "#252540" }}>→</span>
                 <span
                   className="truncate mono text-xs"
@@ -97,10 +124,17 @@ export default function UploadArea() {
                 >
                   {file.name}
                 </span>
+                <span
+                  className="mono text-xs shrink-0"
+                  style={{ color: statusColor[status] }}
+                  data-testid={`file-status-${i}`}
+                >
+                  {status === "error" ? error : status === "done" ? "done" : "uploading..."}
+                </span>
               </div>
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); removeFile(i); }}
+                onClick={(e) => { e.stopPropagation(); removeFile(id); }}
                 className="ml-3 shrink-0 mono text-xs transition-colors"
                 style={{ color: "#252540" }}
                 onMouseEnter={(e) => (e.target.style.color = "#ff2d55")}
