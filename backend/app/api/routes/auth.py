@@ -1,18 +1,60 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+
+from app.schemas.user import UserCredentials
+from app.services.supabase_client import SupabaseNotConfigured, supabase_client
+
 
 router = APIRouter()
 
 
+def _config_error(exc: SupabaseNotConfigured) -> HTTPException:
+    return HTTPException(status_code=503, detail=str(exc))
+
+
 @router.post("/signup")
-async def signup() -> dict:
-    raise NotImplementedError
+async def signup(creds: UserCredentials) -> dict:
+    try:
+        client = await supabase_client.client()
+    except SupabaseNotConfigured as exc:
+        raise _config_error(exc) from exc
+
+    resp = await client.auth.sign_up(
+        {"email": creds.email, "password": creds.password}
+    )
+    if not resp.user:
+        raise HTTPException(status_code=400, detail="Signup failed")
+    return {
+        "user_id": resp.user.id,
+        "email": resp.user.email,
+        "access_token": resp.session.access_token if resp.session else None,
+    }
 
 
 @router.post("/login")
-async def login() -> dict:
-    raise NotImplementedError
+async def login(creds: UserCredentials) -> dict:
+    try:
+        client = await supabase_client.client()
+    except SupabaseNotConfigured as exc:
+        raise _config_error(exc) from exc
+
+    resp = await client.auth.sign_in_with_password(
+        {"email": creds.email, "password": creds.password}
+    )
+    if not resp.session:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return {
+        "user_id": resp.user.id,
+        "access_token": resp.session.access_token,
+        "refresh_token": resp.session.refresh_token,
+    }
 
 
 @router.post("/logout")
 async def logout() -> dict:
-    raise NotImplementedError
+    try:
+        client = await supabase_client.client()
+    except SupabaseNotConfigured as exc:
+        raise _config_error(exc) from exc
+
+    await client.auth.sign_out()
+    return {"status": "ok"}

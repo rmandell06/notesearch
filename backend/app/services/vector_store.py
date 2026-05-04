@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import httpx
@@ -32,6 +33,18 @@ class VectorStore:
             f"/vectorize/v2/indexes/{self.index}/query"
         )
 
+    def _upsert_url(self) -> str:
+        return (
+            f"{self.BASE}/accounts/{self.account_id}"
+            f"/vectorize/v2/indexes/{self.index}/upsert"
+        )
+
+    def _delete_url(self) -> str:
+        return (
+            f"{self.BASE}/accounts/{self.account_id}"
+            f"/vectorize/v2/indexes/{self.index}/delete-by-ids"
+        )
+
     def _headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {self.api_token}",
@@ -58,6 +71,40 @@ class VectorStore:
             )
         resp.raise_for_status()
         return resp.json().get("result", {}).get("matches", [])
+
+    async def upsert(
+        self,
+        items: list[dict[str, Any]],
+    ) -> None:
+        """Insert-or-update vectors. Each item: {id, values, metadata?}.
+
+        Cloudflare's upsert endpoint takes NDJSON (one JSON object per line)
+        rather than a JSON array, which is why we serialize manually.
+        """
+        if not items:
+            return
+        self._require_config()
+
+        ndjson = "\n".join(json.dumps(it) for it in items)
+        headers = self._headers() | {"Content-Type": "application/x-ndjson"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                self._upsert_url(), headers=headers, content=ndjson
+            )
+        resp.raise_for_status()
+
+    async def delete(self, ids: list[str]) -> None:
+        """Remove vectors by id."""
+        if not ids:
+            return
+        self._require_config()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                self._delete_url(),
+                headers=self._headers(),
+                json={"ids": ids},
+            )
+        resp.raise_for_status()
 
 
 vector_store = VectorStore()
