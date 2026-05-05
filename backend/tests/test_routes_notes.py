@@ -13,7 +13,6 @@ AUTH = {"Authorization": "Bearer test-token"}
 
 @pytest.fixture(autouse=True)
 def stub_auth(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Skip the real Supabase JWT validation — every request is user 'u-1'."""
     fake = MagicMock()
     fake.auth.get_user = AsyncMock(
         return_value=SimpleNamespace(user=SimpleNamespace(id="u-1"))
@@ -23,17 +22,12 @@ def stub_auth(monkeypatch: pytest.MonkeyPatch) -> None:
         "client",
         AsyncMock(return_value=fake),
     )
-    # Return the same fake from the auth-validating call so route code that
-    # also reaches into client.table(...) works (chained mock below).
     return fake
 
 
 @pytest.fixture
 def fake_table(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """Builder-style mock so `client.table(...).insert(...).execute()` works."""
     chain = MagicMock()
-    # Every chained method returns the same chain so we don't have to set up
-    # each link individually. `execute` is the awaitable that yields data.
     chain.insert.return_value = chain
     chain.select.return_value = chain
     chain.delete.return_value = chain
@@ -58,7 +52,8 @@ def fake_table(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
 
 @pytest.fixture
 def stub_embed(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    embed = MagicMock(return_value=[[0.1] * 128])
+    """Returns one fake vector per input text (so chunked notes get N vectors)."""
+    embed = MagicMock(side_effect=lambda texts: [[0.1] * 128 for _ in texts])
     monkeypatch.setattr(embedding_module.embedding_service, "embed", embed)
     return embed
 
@@ -77,17 +72,18 @@ def stub_vector_delete(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     return delete
 
 
-def _row() -> dict:
+def _row(chunk_count: int = 1, content: str = "Body") -> dict:
     return {
         "id": "n-1",
         "title": "Hi",
-        "content": "Body",
+        "content": content,
         "created_at": "2026-04-25T00:00:00",
         "source": "text",
+        "chunk_count": chunk_count,
     }
 
 
-def test_create_note_persists_and_indexes(
+def test_short_note_indexes_as_single_chunk(
     client,
     fake_table: MagicMock,
     stub_embed: MagicMock,
@@ -102,10 +98,38 @@ def test_create_note_persists_and_indexes(
     assert resp.json()["id"] == "n-1"
 
     stub_embed.assert_called_once_with(["Hi\nBody"])
-    stub_vector_upsert.assert_awaited_once()
     (sent_items,) = stub_vector_upsert.await_args.args
-    assert sent_items[0]["id"] == "n-1"
+    assert len(sent_items) == 1
+    assert sent_items[0]["id"] == "n-1::0"
+    assert sent_items[0]["metadata"]["note_id"] == "n-1"
+    assert sent_items[0]["metadata"]["chunk_index"] == 0
     assert sent_items[0]["metadata"]["user_id"] == "u-1"
+
+
+def test_long_note_indexes_as_multiple_chunks(
+    client,
+    fake_table: MagicMock,
+    stub_embed: MagicMock,
+    stub_vector_upsert: AsyncMock,
+) -> None:
+    long_content = " ".join(["word"] * 600)  # 600 words → ~3 chunks
+    fake_table.execute.return_value = SimpleNamespace(data=[_row(chunk_count=4)])
+
+    resp = client.post(
+        "/notes/",
+        headers=AUTH,
+        json={"title": "Hi", "content": long_content},
+    )
+    assert resp.status_code == 200
+
+    (embedded_texts,) = stub_embed.call_args.args
+    assert len(embedded_texts) >= 3  # multiple chunks for a 600-word note
+    (sent_items,) = stub_vector_upsert.await_args.args
+    assert len(sent_items) == len(embedded_texts)
+    # Composite ids in order
+    assert [it["id"] for it in sent_items] == [
+        f"n-1::{i}" for i in range(len(sent_items))
+    ]
 
 
 def test_list_notes_filters_by_user(client, fake_table: MagicMock) -> None:
@@ -124,10 +148,28 @@ def test_get_note_404_when_missing(client, fake_table: MagicMock) -> None:
     assert resp.status_code == 404
 
 
-def test_delete_note_drops_vector(
+def test_delete_note_drops_all_chunk_vectors(
     client, fake_table: MagicMock, stub_vector_delete: AsyncMock
 ) -> None:
-    fake_table.execute.return_value = SimpleNamespace(data=[_row()])
+    fake_table.execute.return_value = SimpleNamespace(data=[_row(chunk_count=3)])
+
+    resp = client.delete("/notes/n-1", headers=AUTH)
+    assert resp.status_code == 200
+    stub_vector_delete.assert_awaited_once_with(["n-1::0", "n-1::1", "n-1::2"])
+
+
+def test_delete_legacy_note_falls_back_to_bare_id(
+    client, fake_table: MagicMock, stub_vector_delete: AsyncMock
+) -> None:
+    """Old rows that pre-date chunking have no chunk_count column."""
+    legacy_row = {
+        "id": "n-1",
+        "title": "Hi",
+        "content": "Body",
+        "created_at": "2026-04-25T00:00:00",
+        "source": "text",
+    }
+    fake_table.execute.return_value = SimpleNamespace(data=[legacy_row])
 
     resp = client.delete("/notes/n-1", headers=AUTH)
     assert resp.status_code == 200
