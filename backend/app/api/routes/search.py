@@ -16,10 +16,25 @@ OVERSAMPLE = 5
 def _note_id_of(match: dict) -> str:
     """The vector id is `note_id::chunk_index` for chunked entries; legacy
     entries (single-vector-per-note) use the bare note id with no metadata."""
-    metadata = match.get("metadata", {}) or {}
+    metadata = match.get("metadata") or {}
     if metadata.get("note_id"):
         return metadata["note_id"]
     return match.get("id", "")
+
+
+_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _format_date(ts: str) -> str:
+    if not ts:
+        return ""
+    try:
+        from datetime import datetime
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        return f"{_MONTHS[dt.month - 1]} {dt.day}, {dt.year}"
+    except (ValueError, AttributeError):
+        return ts[:10]
 
 
 @router.get("/", response_model=list[SearchResult])
@@ -44,11 +59,20 @@ async def search(q: str, top_k: int = 10) -> list[SearchResult]:
         key=lambda m: -float(m.get("score", 0.0)),
     )[:top_k]
 
-    return [
-        SearchResult(
-            note_id=_note_id_of(m),
-            title=(m.get("metadata") or {}).get("title", ""),
-            score=float(m.get("score", 0.0)),
+    results: list[SearchResult] = []
+    for m in deduped:
+        metadata = m.get("metadata") or {}
+        note_id = _note_id_of(m)
+        score = float(m.get("score", 0.0))
+        results.append(
+            SearchResult(
+                id=note_id,
+                note_id=note_id,
+                title=metadata.get("title", ""),
+                preview=metadata.get("snippet", ""),
+                date=_format_date(metadata.get("created_at", "")),
+                score=score,
+                relevance=score,
+            )
         )
-        for m in deduped
-    ]
+    return results
