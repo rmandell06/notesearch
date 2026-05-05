@@ -15,6 +15,13 @@ venv/
 # OS
 .DS_Store
 
+# Uploaded user content
+backend/storage/
+
+# Stray Colab download duplicates
+config (*).json
+encoder (*).pt
+
 # Model weights — committed weights bloat the repo. Keep only configs/tokenizer JSON.
 *.pt
 *.pth
