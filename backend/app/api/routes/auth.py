@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from supabase_auth.errors import AuthApiError
 
 from app.schemas.user import UserCredentials
 from app.services.supabase_client import SupabaseNotConfigured, supabase_client
@@ -18,9 +19,13 @@ async def signup(creds: UserCredentials) -> dict:
     except SupabaseNotConfigured as exc:
         raise _config_error(exc) from exc
 
-    resp = await client.auth.sign_up(
-        {"email": creds.email, "password": creds.password}
-    )
+    try:
+        resp = await client.auth.sign_up(
+            {"email": creds.email, "password": creds.password}
+        )
+    except AuthApiError as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+
     if not resp.user:
         raise HTTPException(status_code=400, detail="Signup failed")
     return {
@@ -37,9 +42,14 @@ async def login(creds: UserCredentials) -> dict:
     except SupabaseNotConfigured as exc:
         raise _config_error(exc) from exc
 
-    resp = await client.auth.sign_in_with_password(
-        {"email": creds.email, "password": creds.password}
-    )
+    try:
+        resp = await client.auth.sign_in_with_password(
+            {"email": creds.email, "password": creds.password}
+        )
+    except AuthApiError as exc:
+        # Wrong password / unverified email / unknown user all surface here.
+        raise HTTPException(status_code=401, detail=exc.message) from exc
+
     if not resp.session:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     return {
