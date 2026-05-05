@@ -92,19 +92,33 @@ def _build_note_response(row: dict) -> NoteResponse:
 
 
 def _extract_text(data: bytes, filename: str) -> str:
-    """Best-effort text extraction. PDFs via pypdf if available, otherwise
-    decode as UTF-8 with errors ignored. Misclassified files just produce
-    weak text — never fatal for the upload flow."""
+    """Extract human-readable text from an uploaded file.
+
+    PDFs go through pdfplumber (handles Google Docs / non-standard producers
+    correctly where pypdf returns empty strings). Other file types decode
+    as UTF-8.
+
+    For PDFs we *never* fall back to UTF-8 on the raw bytes — that produces
+    garbled binary glued together by the codec error handler, which is then
+    indelibly stored in the notes table. Storing empty content is strictly
+    better: re-upload always works, garbage is forever."""
     name = (filename or "").lower()
+
     if name.endswith(".pdf"):
         try:
-            from pypdf import PdfReader
+            import pdfplumber
 
-            reader = PdfReader(io.BytesIO(data))
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
+            with pdfplumber.open(io.BytesIO(data)) as pdf:
+                pages = [p.extract_text() or "" for p in pdf.pages]
+            text = "\n\n".join(pages).strip()
         except Exception as exc:
             logger.warning("PDF extraction failed for %s: %s", filename, exc)
-    return data.decode("utf-8", errors="ignore")
+            text = ""
+        # Postgres TEXT columns reject NUL bytes; some PDF text streams smuggle
+        # them in. The encoder doesn't care and humans don't read them.
+        return text.replace("\x00", "")
+
+    return data.decode("utf-8", errors="ignore").replace("\x00", "")
 
 
 async def _index_chunks(

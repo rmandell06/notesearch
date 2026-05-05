@@ -40,9 +40,11 @@ class VectorStore:
         )
 
     def _delete_url(self) -> str:
+        # Cloudflare's V2 API uses underscore here, unlike most other paths.
+        # Hyphenated `delete-by-ids` 404s.
         return (
             f"{self.BASE}/accounts/{self.account_id}"
-            f"/vectorize/v2/indexes/{self.index}/delete-by-ids"
+            f"/vectorize/v2/indexes/{self.index}/delete_by_ids"
         )
 
     def _headers(self) -> dict[str, str]:

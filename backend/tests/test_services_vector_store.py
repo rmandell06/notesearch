@@ -100,7 +100,7 @@ async def test_delete_posts_id_list(fake_httpx: dict) -> None:
     await vs_module.vector_store.delete(["v-1", "v-2"])
 
     [call] = fake_httpx["calls"]
-    assert call["url"].endswith("/delete-by-ids")
+    assert call["url"].endswith("/delete_by_ids")
     assert call["json"] == {"ids": ["v-1", "v-2"]}
 
 

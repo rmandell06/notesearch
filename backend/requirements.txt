@@ -9,7 +9,7 @@ supabase
 boto3
 python-multipart
 torch
-pypdf
+pdfplumber
 
 pytest
 pytest-asyncio
