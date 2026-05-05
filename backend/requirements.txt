@@ -8,7 +8,7 @@ httpx
 supabase
 boto3
 python-multipart
-sentence-transformers
+torch
 pypdf
 
 pytest
