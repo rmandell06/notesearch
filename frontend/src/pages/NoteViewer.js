@@ -1,199 +1,158 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getNote } from "../api";
+import AppShell from "../components/AppShell";
+import { getNote, getConnections } from "../api";
+import { gradientClass } from "../lib/colors";
+import { safeBody } from "../lib/text";
 
 const MOCK_NOTES = {
   "1": {
-    title: "Meeting notes — Q2 planning",
-    date: "Mar 30, 2026",
-    tags: ["meetings", "planning"],
-    body: `We kicked off the Q2 planning session with a review of Q1 outcomes. Overall velocity was good, though the search indexing pipeline ran behind due to infra delays.
+    id: "1", title: "Q2 planning", date: "Mar 30, 2026", source: "text",
+    body: `We kicked off the Q2 planning session with a review of Q1 outcomes. Velocity was good, though the search indexing pipeline ran behind due to infra delays.
 
 Key priorities for Q2:
 - Improve search UX: result ranking transparency, snippet highlighting
 - Onboarding flow for new users uploading their first notes
 - Performance benchmarks for the embedding pipeline (target: <200ms p95)
-- Begin work on the connections graph view
-
-Action items:
-- [ ] Draft UX mockups for snippet highlighting (Aashna)
-- [ ] Profile embedding latency on the staging cluster (Bobby)
-- [ ] Write onboarding copy and wireframes (design team)
-
-Next sync: April 10th.`,
-  },
-  "2": {
-    title: "Research: vector embeddings",
-    date: "Mar 27, 2026",
-    tags: ["research", "ml", "search"],
-    body: `Spent time comparing retrieval strategies for semantic search.
-
-**Cosine similarity vs dot product**
-Both work for unit-normalized vectors. Cosine is more robust when vectors aren't normalized. Dot product is faster at scale.
-
-**Sentence Transformers**
-all-MiniLM-L6-v2 is a solid baseline: fast, small (~80MB), good quality on general text. For longer documents, chunking at ~256 tokens with 32-token overlap gives better recall.
-
-**BM25 vs dense retrieval**
-BM25 handles keyword-heavy queries well and has no inference cost. Dense models win on paraphrase, synonym matching, and cross-lingual tasks. Hybrid approaches (combine both scores) tend to outperform either alone.
-
-**Next steps:** Test a hybrid retrieval pipeline. Evaluate recall@10 on a held-out note set.`,
-  },
-  "3": {
-    title: "Book notes — Thinking Fast and Slow",
-    date: "Mar 22, 2026",
-    tags: ["books", "psychology"],
-    body: `Daniel Kahneman's framework of System 1 (fast, intuitive) vs System 2 (slow, deliberate) thinking.
-
-**Key concepts:**
-
-Anchoring bias — estimates are heavily influenced by an initial number, even when people know it's arbitrary. Experiment: spin a wheel landing on 10 or 65, then ask what % of African countries are in the UN. The wheel number shifts answers significantly.
-
-Availability heuristic — we judge probability by how easily examples come to mind. Plane crashes feel more likely than car crashes because they get more media coverage.
-
-WYSIATI (What You See Is All There Is) — our minds construct coherent narratives from available information without flagging what's missing.
-
-Loss aversion — losses hurt roughly twice as much as equivalent gains feel good. This explains why people hold losing stocks too long.`,
-  },
-  "4": {
-    title: "Notes on information retrieval",
-    date: "Mar 18, 2026",
-    tags: ["research", "ir"],
-    body: `Classic IR vs modern neural approaches.
-
-TF-IDF weights terms by frequency in a document relative to frequency across the corpus. Rare terms in a document get high weight. Simple and interpretable.
-
-BM25 improves on TF-IDF with document length normalization and a saturation function for term frequency. Still a competitive baseline for keyword search.
-
-Dense retrieval encodes queries and documents into a shared embedding space. Models like DPR (Dense Passage Retrieval) are trained end-to-end on question-answer pairs. Much better at handling natural language variation.
-
-ColBERT (Contextualized Late Interaction) keeps token-level representations and scores with MaxSim — better quality than single-vector dense, faster than cross-encoder reranking.`,
+- Begin work on the connections graph view`,
   },
 };
-
-const TAG_PALETTE = [
-  { color: "#00e5ff", shadow: "rgba(0,229,255,0.35)" },
-  { color: "#bf5af2", shadow: "rgba(191,90,242,0.35)" },
-  { color: "#32d74b", shadow: "rgba(50,215,75,0.35)" },
-  { color: "#ff9f0a", shadow: "rgba(255,159,10,0.35)" },
-  { color: "#ff375f", shadow: "rgba(255,55,95,0.35)" },
-];
 
 export default function NoteViewer() {
   const { id } = useParams();
   const navigate = useNavigate();
-
   const [note, setNote] = useState(null);
+  const [related, setRelated] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-
+    setLoading(true); setError(null);
     getNote(id)
       .then((data) => setNote(data))
       .catch(() => {
         const fallback = MOCK_NOTES[id];
-        if (fallback) {
-          setNote(fallback);
-        } else {
-          setError("Note not found");
-        }
+        if (fallback) setNote(fallback); else setError("Note not found");
       })
       .finally(() => setLoading(false));
   }, [id]);
 
+  useEffect(() => {
+    if (!id) return;
+    getConnections()
+      .then((graph) => {
+        const links = (graph.links ?? []).filter((l) => l.source === id || l.target === id);
+        const otherIds = links
+          .map((l) => ({ id: l.source === id ? l.target : l.source, value: l.value }))
+          .sort((a, b) => b.value - a.value).slice(0, 5);
+        const nodeById = new Map((graph.nodes ?? []).map((n) => [n.id, n]));
+        setRelated(otherIds.map(({ id: oid, value }) => {
+          const n = nodeById.get(oid);
+          return n ? { ...n, similarity: value } : null;
+        }).filter(Boolean));
+      })
+      .catch(() => setRelated([]));
+  }, [id]);
+
   return (
-    <div className="min-h-screen">
-      <header
-        className="px-6 py-4 flex items-center gap-4"
-        style={{ borderBottom: "1px solid #1a1a2e" }}
-      >
-        <button
-          onClick={() => navigate(-1)}
-          className="mono text-xs transition-colors flex items-center gap-1"
-          style={{ color: "#3a3a5a" }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "#00e5ff")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "#3a3a5a")}
-        >
-          ← back
-        </button>
-        <a href="/" className="mono text-base font-bold tracking-tight neon-cyan" style={{ textDecoration: "none" }}>
-          note<span style={{ color: "#bf5af2", textShadow: "0 0 8px rgba(191,90,242,0.55)" }}>search</span>
-          <span style={{ color: "#3a3a5a" }}>.app</span>
-        </a>
-      </header>
+    <AppShell>
+      <button onClick={() => navigate(-1)} className="btn-ghost mb-8" style={{ marginLeft: -12 }}>
+        ← Back
+      </button>
 
-      <main className="max-w-2xl mx-auto px-6 pt-10 pb-20">
-        {loading && (
-          <p className="mono text-xs text-center py-10" style={{ color: "#3a3a5a" }} role="status">
-            loading...
-          </p>
-        )}
+      {loading && (
+        <p className="serif italic text-center" style={{
+          fontSize: 24, color: "var(--ink-muted)", padding: "60px 0",
+        }}>loading…</p>
+      )}
 
-        {error && !loading && (
-          <div className="text-center py-10">
-            <p className="mono text-xs mb-4" style={{ color: "#3a3a5a" }}>// {error}</p>
-            <button
-              onClick={() => navigate(-1)}
-              className="mono text-xs transition-colors"
-              style={{ color: "#00e5ff", textShadow: "0 0 8px rgba(0,229,255,0.4)" }}
-            >
-              ← go back
-            </button>
-          </div>
-        )}
+      {error && !loading && (
+        <div className="text-center" style={{ padding: "80px 0" }}>
+          <p className="serif italic" style={{ fontSize: 28 }}>{error}</p>
+        </div>
+      )}
 
-        {note && !loading && (
-          <>
-            <div className="mb-8">
-              <h1 className="text-xl font-semibold mb-3" style={{ color: "#e2e2f0" }}>
+      {note && !loading && (
+        <article className="rise">
+          <header className="row gap-6 mb-10" style={{ alignItems: "flex-end" }}>
+            <div
+              className={gradientClass(note.id ?? note.title)}
+              style={{ width: 132, height: 132, borderRadius: 18, flexShrink: 0 }}
+              aria-hidden="true"
+            />
+            <div className="flex-1">
+              <p className="eyebrow mb-3">Note</p>
+              <h1 className="display" style={{
+                fontSize: "clamp(36px, 5vw, 60px)", lineHeight: 1.05, margin: 0, marginBottom: 12,
+              }}>
                 {note.title}
               </h1>
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="mono text-xs" style={{ color: "#252540" }}>{note.date}</span>
-                {note.tags?.length > 0 && (
-                  <>
-                    <span style={{ color: "#1e1e32" }}>·</span>
-                    <div className="flex gap-2 flex-wrap">
-                      {note.tags.map((tag, i) => {
-                        const p = TAG_PALETTE[i % TAG_PALETTE.length];
-                        return (
-                          <span
-                            key={tag}
-                            className="mono text-xs px-2 py-0.5 rounded"
-                            style={{
-                              color: p.color,
-                              background: `${p.color}12`,
-                              border: `1px solid ${p.color}30`,
-                              textShadow: `0 0 8px ${p.shadow}`,
-                            }}
-                          >
-                            #{tag}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
+              <div className="row gap-3 muted" style={{ fontSize: 12 }}>
+                <span>{note.date}</span>
+                {note.source && (<>
+                  <span className="subtle">·</span>
+                  <span style={{ textTransform: "capitalize" }}>{note.source}</span>
+                </>)}
               </div>
             </div>
+          </header>
 
-            <div
-              className="rounded-xl p-6"
-              style={{ background: "#0e0e1c", border: "1.5px solid #1a1a2e" }}
-            >
-              <pre
-                className="whitespace-pre-wrap text-sm leading-relaxed"
-                style={{ fontFamily: "'Space Mono', monospace", color: "#8888aa" }}
-              >
-                {note.body ?? note.raw_content ?? note.processed_content}
-              </pre>
-            </div>
-          </>
-        )}
-      </main>
-    </div>
+          <div className="glass-2 r-xl mb-10" style={{ padding: 36 }}>
+            <pre className="serif" style={{
+              whiteSpace: "pre-wrap", lineHeight: 1.7,
+              fontVariationSettings: '"opsz" 14',
+              fontSize: 16, color: "var(--ink-soft)", margin: 0,
+            }}>
+              {safeBody(note.body ?? note.content ?? note.raw_content ?? "")}
+            </pre>
+          </div>
+
+          {related.length > 0 && (
+            <section className="fade delay-2">
+              <p className="eyebrow mb-4">Related notes</p>
+              <div className="col gap-2">
+                {related.map((r) => (
+                  <button
+                    key={r.id}
+                    onClick={() => navigate(`/note/${r.id}`)}
+                    className="glass r-md row gap-3"
+                    style={{
+                      padding: 12, textAlign: "left", width: "100%",
+                      transition: "background 200ms",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "var(--glass-2)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "var(--glass)")}
+                  >
+                    <div
+                      className={gradientClass(r.id ?? r.title)}
+                      style={{ width: 36, height: 36, borderRadius: 8, flexShrink: 0 }}
+                    />
+                    <div className="flex-1">
+                      <p className="serif clamp-1" style={{
+                        fontSize: 15, fontWeight: 600, margin: 0, color: "var(--ink)",
+                      }}>{r.title}</p>
+                      <div className="row gap-2 mt-1">
+                        <div style={{
+                          flex: 1, height: 3, background: "var(--hairline-2)",
+                          borderRadius: 999, overflow: "hidden",
+                        }}>
+                          <div style={{
+                            width: `${Math.round(r.similarity * 100)}%`,
+                            height: "100%", background: "var(--accent)",
+                          }} />
+                        </div>
+                        <span className="muted tabular" style={{ fontSize: 11 }}>
+                          {Math.round(r.similarity * 100)}%
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+        </article>
+      )}
+    </AppShell>
   );
 }
