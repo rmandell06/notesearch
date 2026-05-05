@@ -20,3 +20,6 @@ venv/
 *.pth
 *.ckpt
 *.bin
+# Exception: the canonical trained encoder ships with the repo so the backend
+# is runnable without a separate download step. ~12 MB — under GitHub's warn.
+!backend/artifacts/encoder.pt
