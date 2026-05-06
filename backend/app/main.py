@@ -6,9 +6,17 @@ from app.api.routes import auth, connections, notes, search, voice
 
 app = FastAPI(title="Notes API")
 
+# CORS allow-list. Vercel preview URLs use a regex so feature-branch
+# deploys at https://notesearch-three-<hash>-rmandell06.vercel.app keep
+# working without a backend redeploy.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://notesearch-three.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ],
+    allow_origin_regex=r"https://notesearch-three-.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
