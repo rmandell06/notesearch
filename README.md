@@ -189,7 +189,8 @@ cd backend && pytest tests/ -v
 
 ## Authors
 
-CS222 SP26 — Team 26.058: Robert Mandell, Pranav Popuri, Surya Sridharan, Aashna Anand
-Frontend - Aashna
-Backend - Surya and Robert
-Transformer - Robert and Pranav
+CS222 SP26 — Team 26.058: Robert Mandell, Pranav Popuri, Surya Sridharan, Aashna Anand  
+
+Frontend - Aashna  
+Backend - Surya and Robert  
+Transformer - Robert and Pranav  
