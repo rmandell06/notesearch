@@ -24,6 +24,7 @@
   --error:        #c2410c;
   --noise-blend:  multiply;
   --noise-opacity: 0.05;
+  --input-focus-bg: rgba(255, 251, 244, 0.92);
   --bg-mesh:
     radial-gradient(at 12% 8%,  #ffe1c4 0%, transparent 42%),
     radial-gradient(at 88% 12%, #d8f0e0 0%, transparent 45%),
@@ -60,6 +61,7 @@
   --error:        #ff7a59;
   --noise-blend:  screen;
   --noise-opacity: 0.04;
+  --input-focus-bg: rgba(245, 233, 212, 0.12);
   --bg-mesh:
     radial-gradient(at 12% 8%,  #2a1c0c 0%, transparent 42%),
     radial-gradient(at 88% 12%, #0d2018 0%, transparent 45%),
@@ -250,7 +252,7 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
 }
 .input-glass:focus {
   border-color: var(--accent);
-  background: rgba(255,251,244,0.92);
+  background: var(--input-focus-bg);
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
 .input-glass::placeholder { color: var(--ink-subtle); }
