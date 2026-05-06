@@ -141,12 +141,17 @@ def test_long_note_indexes_as_multiple_chunks(
     )
     assert resp.status_code == 200
 
+    # Multi-chunk path batches everything in one call:
+    #   [title, *chunks, *(title+chunk_i)]  → 2N + 1 vectors
+    # Only the search vectors (N at the end) get upserted.
     (embedded_texts,) = stub_embed.call_args.args
-    assert len(embedded_texts) >= 3
+    assert embedded_texts[0] == "Hi"  # title goes first
+    n_chunks = (len(embedded_texts) - 1) // 2
+    assert n_chunks >= 3
     (sent_items,) = stub_vector_upsert.await_args.args
-    assert len(sent_items) == len(embedded_texts)
+    assert len(sent_items) == n_chunks
     assert [it["id"] for it in sent_items] == [
-        f"n-1::{i}" for i in range(len(sent_items))
+        f"n-1::{i}" for i in range(n_chunks)
     ]
 
 
@@ -206,7 +211,8 @@ def test_list_notes_returns_display_fields(
     assert resp.status_code == 200
     [item] = resp.json()
     assert item["id"] == "n-1"
-    assert item["preview"].endswith("...")
+    # Long content with no stored preview falls back to truncated content + ellipsis.
+    assert item["preview"].endswith("…")
     assert item["date"] == "Apr 25, 2026"
     fake_table.eq.assert_any_call("user_id", "u-1")
     fake_table.limit.assert_called_with(10)

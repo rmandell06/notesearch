@@ -1,5 +1,6 @@
 import io
 import logging
+import math
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -16,12 +17,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 TABLE = "notes"
 
-# Word-bounded chunking. ~200 words is roughly ~480 BPE tokens for English on
-# this tokenizer, which leaves margin under the encoder's max_seq_len=512 cap.
-# 32-word overlap so a sentence isn't sliced in half between chunks.
 CHUNK_WORDS = 200
 CHUNK_OVERLAP = 32
-
 PREVIEW_LEN = 200
 
 
@@ -54,9 +51,19 @@ def _vector_id(note_id: str, chunk_index: int) -> str:
     return f"{note_id}::{chunk_index}"
 
 
-def _make_preview(content: str, max_len: int = PREVIEW_LEN) -> str:
-    text = content.strip()
-    return text[:max_len] + ("..." if len(text) > max_len else "")
+def _truncate(text: str, max_len: int = PREVIEW_LEN) -> str:
+    text = (text or "").strip()
+    return text[:max_len] + ("…" if len(text) > max_len else "")
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    """Manual cosine similarity. Vectors aren't pre-normalized."""
+    if not a or not b:
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(x * x for x in b))
+    return dot / (na * nb) if na and nb else 0.0
 
 
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -64,7 +71,6 @@ _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
 
 
 def _format_date(ts: str | datetime | None) -> str:
-    """`Mar 30, 2026` from an ISO string or datetime; empty string on parse fail."""
     if not ts:
         return ""
     if isinstance(ts, datetime):
@@ -78,13 +84,21 @@ def _format_date(ts: str | datetime | None) -> str:
 
 
 def _build_note_response(row: dict) -> NoteResponse:
+    """Build the response shape the frontend cards consume.
+
+    Prefers the `preview` column (stored at upload time as the chunk most
+    similar to the title) over a naive `content[:200]` slice. Falls back
+    to the slice for legacy rows uploaded before the preview column existed.
+    """
     content = row.get("content", "") or ""
+    stored_preview = (row.get("preview") or "").strip()
+    preview = stored_preview if stored_preview else _truncate(content)
     return NoteResponse(
         id=row["id"],
         title=row.get("title", ""),
         content=content,
         body=content,
-        preview=_make_preview(content),
+        preview=preview,
         date=_format_date(row.get("created_at")),
         created_at=row.get("created_at") or datetime.utcnow(),
         source=row.get("source", "text"),
@@ -92,18 +106,8 @@ def _build_note_response(row: dict) -> NoteResponse:
 
 
 def _extract_text(data: bytes, filename: str) -> str:
-    """Extract human-readable text from an uploaded file.
-
-    PDFs go through pdfplumber (handles Google Docs / non-standard producers
-    correctly where pypdf returns empty strings). Other file types decode
-    as UTF-8.
-
-    For PDFs we *never* fall back to UTF-8 on the raw bytes — that produces
-    garbled binary glued together by the codec error handler, which is then
-    indelibly stored in the notes table. Storing empty content is strictly
-    better: re-upload always works, garbage is forever."""
+    """Extract human-readable text from an uploaded file."""
     name = (filename or "").lower()
-
     if name.endswith(".pdf"):
         try:
             import pdfplumber
@@ -114,30 +118,64 @@ def _extract_text(data: bytes, filename: str) -> str:
         except Exception as exc:
             logger.warning("PDF extraction failed for %s: %s", filename, exc)
             text = ""
-        # Postgres TEXT columns reject NUL bytes; some PDF text streams smuggle
-        # them in. The encoder doesn't care and humans don't read them.
         return text.replace("\x00", "")
 
     return data.decode("utf-8", errors="ignore").replace("\x00", "")
 
 
-async def _index_chunks(
+def _embed_for_indexing(
+    title: str, chunks: list[str]
+) -> tuple[str, list[list[float]] | None]:
+    """Embed everything needed to index a note + pick its preview.
+
+    Returns (preview_text, search_vectors). search_vectors is a list with
+    one entry per chunk (the title-prefixed embedding stored in Vectorize),
+    or None if embedding failed entirely (in which case the note is still
+    saved, just not searchable).
+
+    Strategy:
+      - 1 chunk: the chunk IS the representative; just embed the search
+        vector and use the chunk text as preview.
+      - N > 1 chunks: batch [title, *chunks, *(title+chunk)] in a single
+        embed call, then pick max cosine(title, chunk_alone) as preview.
+    """
+    if not chunks:
+        return "", None
+
+    if len(chunks) == 1:
+        try:
+            search_vec = embedding_service.embed([f"{title}\n{chunks[0]}"])[0]
+        except Exception as exc:  # pragma: no cover  # best-effort
+            logger.warning("embedding failed: %s", exc)
+            return _truncate(chunks[0]), None
+        return _truncate(chunks[0]), [search_vec]
+
+    n = len(chunks)
+    batch = [title] + chunks + [f"{title}\n{c}" for c in chunks]
+    try:
+        all_vecs = embedding_service.embed(batch)
+    except Exception as exc:  # pragma: no cover
+        logger.warning("embedding failed: %s", exc)
+        return _truncate(chunks[0]), None
+
+    title_vec = all_vecs[0]
+    chunk_vecs = all_vecs[1 : 1 + n]
+    search_vecs = all_vecs[1 + n :]
+
+    best_idx = max(range(n), key=lambda i: _cosine(title_vec, chunk_vecs[i]))
+    return _truncate(chunks[best_idx]), search_vecs
+
+
+async def _upsert_chunks(
     note_id: str,
     title: str,
-    content: str,
     user_id: str,
     created_at: str,
     chunks: list[str],
+    search_vecs: list[list[float]],
 ) -> None:
-    """Embed each chunk and upsert it into the vector index.
-
-    Failures here shouldn't lose the note — the row is already in Supabase,
-    and the user can re-index later. Caller decides whether the note had
-    chunks generated."""
-    if not chunks:
-        return
+    """Best-effort upsert of chunk vectors into Vectorize."""
     try:
-        vectors = embedding_service.embed([f"{title}\n{c}" for c in chunks])
         await vector_store.upsert(
             [
                 {
@@ -148,18 +186,18 @@ async def _index_chunks(
                         "chunk_index": idx,
                         "title": title,
                         "user_id": user_id,
-                        "snippet": chunk[:PREVIEW_LEN],
+                        "snippet": _truncate(chunk),
                         "created_at": created_at,
                     },
                 }
-                for idx, (chunk, vec) in enumerate(zip(chunks, vectors))
+                for idx, (chunk, vec) in enumerate(zip(chunks, search_vecs))
             ]
         )
     except VectorStoreNotConfigured:
-        pass  # search will be unavailable until creds are set; note still saved
+        pass
 
 
-# ── Note: declare /upload before /{note_id} so it doesn't get shadowed ────
+# ── routes ────────────────────────────────────────────────────────────────
 
 
 @router.post("/upload")
@@ -168,9 +206,6 @@ async def upload_file(
     title: str | None = Form(default=None),
     user_id: str = Depends(current_user),
 ) -> dict:
-    """Multipart upload: file body + optional title. Extracts text (PDF via
-    pypdf, plain text otherwise), saves the raw file to storage, creates the
-    note row, and indexes chunks."""
     data = await file.read()
     filename = file.filename or "upload"
     storage_key, _ = await storage_service.save(
@@ -180,6 +215,8 @@ async def upload_file(
     note_title = title or filename
 
     chunks = _chunk(content)
+    preview, search_vecs = _embed_for_indexing(note_title, chunks)
+
     client = await _supabase()
     insert_resp = await (
         client.table(TABLE)
@@ -191,6 +228,7 @@ async def upload_file(
                 "storage_key": storage_key,
                 "source": "upload",
                 "chunk_count": len(chunks),
+                "preview": preview,
             }
         )
         .execute()
@@ -199,14 +237,10 @@ async def upload_file(
         raise HTTPException(status_code=500, detail="Insert failed")
     row = insert_resp.data[0]
 
-    await _index_chunks(
-        note_id=row["id"],
-        title=note_title,
-        content=content,
-        user_id=user_id,
-        created_at=row.get("created_at", ""),
-        chunks=chunks,
-    )
+    if search_vecs is not None:
+        await _upsert_chunks(
+            row["id"], note_title, user_id, row.get("created_at", ""), chunks, search_vecs
+        )
 
     return {"id": row["id"], "title": note_title, "status": "uploaded"}
 
@@ -217,6 +251,7 @@ async def create_note(
     user_id: str = Depends(current_user),
 ) -> NoteResponse:
     chunks = _chunk(note.content)
+    preview, search_vecs = _embed_for_indexing(note.title, chunks)
 
     client = await _supabase()
     insert_resp = await (
@@ -228,6 +263,7 @@ async def create_note(
                 "content": note.content,
                 "source": "text",
                 "chunk_count": len(chunks),
+                "preview": preview,
             }
         )
         .execute()
@@ -236,14 +272,10 @@ async def create_note(
         raise HTTPException(status_code=500, detail="Insert failed")
     row = insert_resp.data[0]
 
-    await _index_chunks(
-        note_id=row["id"],
-        title=note.title,
-        content=note.content,
-        user_id=user_id,
-        created_at=row.get("created_at", ""),
-        chunks=chunks,
-    )
+    if search_vecs is not None:
+        await _upsert_chunks(
+            row["id"], note.title, user_id, row.get("created_at", ""), chunks, search_vecs
+        )
 
     return _build_note_response(row)
 
