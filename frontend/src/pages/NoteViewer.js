@@ -5,19 +5,6 @@ import { getNote, getConnections } from "../api";
 import { gradientClass } from "../lib/colors";
 import { safeBody } from "../lib/text";
 
-const MOCK_NOTES = {
-  "1": {
-    id: "1", title: "Q2 planning", date: "Mar 30, 2026", source: "text",
-    body: `We kicked off the Q2 planning session with a review of Q1 outcomes. Velocity was good, though the search indexing pipeline ran behind due to infra delays.
-
-Key priorities for Q2:
-- Improve search UX: result ranking transparency, snippet highlighting
-- Onboarding flow for new users uploading their first notes
-- Performance benchmarks for the embedding pipeline (target: <200ms p95)
-- Begin work on the connections graph view`,
-  },
-};
-
 export default function NoteViewer() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -30,10 +17,7 @@ export default function NoteViewer() {
     setLoading(true); setError(null);
     getNote(id)
       .then((data) => setNote(data))
-      .catch(() => {
-        const fallback = MOCK_NOTES[id];
-        if (fallback) setNote(fallback); else setError("Note not found");
-      })
+      .catch((err) => setError(err.message || "Note not found"))
       .finally(() => setLoading(false));
   }, [id]);
 

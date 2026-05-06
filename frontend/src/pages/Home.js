@@ -7,40 +7,29 @@ import UploadArea from "../components/UploadArea";
 import StatsPanel from "../components/StatsPanel";
 import { getRecentNotes, getConnections } from "../api";
 
-const FALLBACK_NOTES = [
-  { id: "1", title: "Q2 planning", preview: "Roadmap priorities, search UX, onboarding, embedding pipeline.", date: "Mar 30", source: "text" },
-  { id: "2", title: "Vector embeddings", preview: "Cosine similarity vs dot product, sentence transformers, BM25.", date: "Mar 27", source: "text" },
-  { id: "3", title: "Thinking, Fast and Slow", preview: "System 1 vs 2, anchoring, availability heuristic, loss aversion.", date: "Mar 22", source: "upload" },
-  { id: "4", title: "Information retrieval", preview: "TF-IDF, BM25, dense retrieval, ColBERT.", date: "Mar 18", source: "text" },
-];
-const FALLBACK_GRAPH = {
-  nodes: FALLBACK_NOTES.map((n) => ({ id: n.id, title: n.title })),
-  links: [
-    { source: "2", target: "4", value: 0.88 },
-    { source: "1", target: "2", value: 0.61 },
-    { source: "1", target: "4", value: 0.55 },
-    { source: "3", target: "1", value: 0.38 },
-  ],
-};
+const EMPTY_GRAPH = { nodes: [], links: [] };
 
 export default function Home() {
   const [showUpload, setShowUpload] = useState(false);
-  const [notes, setNotes] = useState(FALLBACK_NOTES);
-  const [graph, setGraph] = useState(FALLBACK_GRAPH);
+  const [notes, setNotes] = useState([]);
+  const [graph, setGraph] = useState(EMPTY_GRAPH);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    getRecentNotes()
-      .then((data) => {
-        const list = data.notes ?? data;
-        if (Array.isArray(list) && list.length > 0) setNotes(list);
-      })
-      .catch(() => {});
-    getConnections()
-      .then((data) => {
-        if (data && Array.isArray(data.nodes) && data.nodes.length > 0) setGraph(data);
-      })
-      .catch(() => {});
+    Promise.all([
+      getRecentNotes()
+        .then((data) => {
+          const list = data.notes ?? data;
+          if (Array.isArray(list)) setNotes(list);
+        })
+        .catch(() => {}),
+      getConnections()
+        .then((data) => {
+          if (data && Array.isArray(data.nodes)) setGraph(data);
+        })
+        .catch(() => {}),
+    ]).finally(() => setLoading(false));
   }, []);
 
   function handleSearch(q) {
@@ -99,14 +88,37 @@ export default function Home() {
           <h2 className="display" style={{ fontSize: 32, margin: 0 }}>
             Your library
           </h2>
-          <p className="subtle" style={{ fontSize: 12 }}>{notes.length} notes</p>
+          <p className="subtle" style={{ fontSize: 12 }}>
+            {notes.length} {notes.length === 1 ? "note" : "notes"}
+          </p>
         </div>
 
-        <div className="grid-2 gap-3">
-          {notes.map((note) => (
-            <NoteCard key={note.id} note={note} />
-          ))}
-        </div>
+        {!loading && notes.length === 0 ? (
+          <div
+            className="glass r-xl text-center"
+            style={{ padding: "56px 24px" }}
+          >
+            <p className="serif italic" style={{ fontSize: 22, color: "var(--ink)", margin: 0 }}>
+              Your library is empty.
+            </p>
+            <p className="muted" style={{ marginTop: 8, fontSize: 13 }}>
+              Upload a note to get started — it'll appear here once indexed.
+            </p>
+            <button
+              onClick={() => setShowUpload(true)}
+              className="btn-accent mt-4"
+              style={{ marginTop: 20 }}
+            >
+              + Upload your first note
+            </button>
+          </div>
+        ) : (
+          <div className="grid-2 gap-3">
+            {notes.map((note) => (
+              <NoteCard key={note.id} note={note} />
+            ))}
+          </div>
+        )}
       </section>
     </AppShell>
   );
