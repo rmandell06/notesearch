@@ -2,6 +2,21 @@
 
 Semantic note search over your own notes. A custom transformer encoder (RoPE + SiLU + SwiGLU) trained on NLI entailment pairs produces 128-dim embeddings; Cloudflare Vectorize stores and ranks them; Supabase handles auth and the notes table; FastAPI serves the API; React renders the UI.
 
+## Try the live demo
+
+**→ [notesearch-three.vercel.app](https://notesearch-three.vercel.app)**
+
+Sign up with any email + 8-character password, drop in a `.txt`, `.md`, or `.pdf`, and search semantically. Frontend on Vercel, backend on Render free tier (`notesearch-9vjs.onrender.com`).
+
+A few caveats so you're not surprised:
+
+- **First request after idle is slow.** Render's free tier sleeps the container after 15 minutes of no traffic. The cold start takes ~30 seconds the first time you hit the site, then everything is fast for the rest of your session.
+- **Cloudflare Vectorize indexing has ~5 second latency.** Right after you upload a note, the search may not return it for a few seconds. Refresh and retry.
+- **Email confirmation is disabled** on the demo Supabase project, so any plausible email works for sign-up.
+- **Don't upload anything sensitive** — the demo runs on shared keys and the data sits in a project that may be wiped after grading.
+
+If you want to run it on your own infrastructure with your own data, follow the setup below.
+
 ## What's in this repo
 
 ```
