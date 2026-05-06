@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- ink-dark rounded square base, matches the app's dark theme;
+       coral dot mirrors the brand mark next to "notesearch" in TopNav -->
+  <rect width="32" height="32" rx="7" fill="#14110d"/>
+  <circle cx="16" cy="16" r="5" fill="#d24a2c"/>
+</svg>
