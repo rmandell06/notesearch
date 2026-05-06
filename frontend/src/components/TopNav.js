@@ -1,6 +1,7 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { logoutUser } from "../api";
 import { useAuth } from "../AuthContext";
+import ThemeToggle from "./ThemeToggle";
 
 export default function TopNav() {
   const location = useLocation();
@@ -50,7 +51,9 @@ export default function TopNav() {
           <NavLink active={isActive("/connections")} to="/connections" label="Connections" navigate={navigate} />
         </nav>
 
-        <button
+        <div className="row gap-1">
+          <ThemeToggle />
+          <button
           onClick={handleLogout}
           className="row gap-2"
           title={user?.email ?? "Sign out"}
@@ -73,6 +76,7 @@ export default function TopNav() {
           </span>
           <span>Sign out</span>
         </button>
+        </div>
       </div>
     </div>
   );
