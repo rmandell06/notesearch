@@ -64,6 +64,10 @@ export function createNote(title, content) {
   });
 }
 
+export function deleteNote(id) {
+  return request(`/notes/${id}`, { method: "DELETE" });
+}
+
 export function getConnections() {
   return request("/connections/");
 }

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import AppShell from "../components/AppShell";
 import MathText from "../components/MathText";
-import { getNote, getConnections } from "../api";
+import { getNote, getConnections, deleteNote } from "../api";
 import { gradientClass } from "../lib/colors";
 import { safeBody } from "../lib/text";
 
@@ -13,6 +13,23 @@ export default function NoteViewer() {
   const [related, setRelated] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (!note) return;
+    const ok = window.confirm(
+      `Delete "${note.title}"? This also drops its vectors from the index — can't be undone.`
+    );
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await deleteNote(note.id);
+      navigate("/");
+    } catch (err) {
+      setError(err.message || "Delete failed");
+      setDeleting(false);
+    }
+  }
 
   useEffect(() => {
     setLoading(true); setError(null);
@@ -41,9 +58,28 @@ export default function NoteViewer() {
 
   return (
     <AppShell>
-      <button onClick={() => navigate(-1)} className="btn-ghost mb-8" style={{ marginLeft: -12 }}>
-        ← Back
-      </button>
+      <div className="row between mb-8">
+        <button onClick={() => navigate(-1)} className="btn-ghost" style={{ marginLeft: -12 }}>
+          ← Back
+        </button>
+        {note && !loading && (
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="btn-ghost"
+            aria-label="Delete this note"
+            style={{ color: deleting ? "var(--ink-subtle)" : "var(--error)" }}
+            onMouseEnter={(e) => {
+              if (!deleting) e.currentTarget.style.background = "rgba(194,65,12,0.08)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+            }}
+          >
+            {deleting ? "Deleting…" : "Delete"}
+          </button>
+        )}
+      </div>
 
       {loading && (
         <p className="serif italic text-center" style={{
