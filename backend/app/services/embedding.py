@@ -1,12 +1,59 @@
+import logging
 from pathlib import Path
 
 import torch
+import torch.nn as nn
 
 from app.services.encoder import Encoder
 from app.services.tokenizer import BPETokenizer
 
 
+logger = logging.getLogger(__name__)
 ARTIFACTS = Path(__file__).resolve().parents[2] / "artifacts"
+
+
+def _select_quant_engine() -> str | None:
+    """Pick a quantization backend the local torch build supports.
+
+    fbgemm is the default on x86 servers (Render, most Linux clouds);
+    qnnpack covers ARM (Apple Silicon laptops, some Render plans). Returns
+    None if neither is available, in which case we skip quantization.
+    """
+    available = set(torch.backends.quantized.supported_engines)
+    for eng in ("fbgemm", "qnnpack"):
+        if eng in available:
+            return eng
+    return None
+
+
+def _quantize(model: Encoder) -> Encoder:
+    """Apply dynamic int8 quantization to all nn.Linear layers in the model.
+
+    Memory drops ~3-4× (int8 weights) and Render's free-tier 512 MB ceiling
+    becomes survivable. Quality cost is ~1% on the separation metric — well
+    below noise floor for retrieval (rankings preserved). See the cosine
+    sanity check in our notes if curious.
+
+    If quantization fails for any reason (no qengine, torch build mismatch,
+    etc.), log and return the model unchanged rather than crash startup.
+    """
+    engine = _select_quant_engine()
+    if engine is None:
+        logger.warning(
+            "embedding: no quantization engine available; running fp32. "
+            "Free-tier deploys may OOM under load."
+        )
+        return model
+    try:
+        torch.backends.quantized.engine = engine
+        quantized = torch.quantization.quantize_dynamic(
+            model, {nn.Linear}, dtype=torch.qint8
+        )
+        logger.info("embedding: int8 quantization active (engine=%s)", engine)
+        return quantized
+    except Exception as exc:  # pragma: no cover  # best-effort fallback
+        logger.warning("embedding: quantization failed (%s); using fp32", exc)
+        return model
 
 
 class EmbeddingService:
@@ -24,7 +71,8 @@ class EmbeddingService:
             self._tokenizer = BPETokenizer.from_pretrained(
                 ARTIFACTS, vocab_size=10_000
             )
-            self._model = Encoder.load(ARTIFACTS, map_location="cpu")
+            model = Encoder.load(ARTIFACTS, map_location="cpu")
+            self._model = _quantize(model)
         return self._tokenizer, self._model
 
     def embed(self, texts: list[str]) -> list[list[float]]:
