@@ -1,51 +1,78 @@
-import logging
-from datetime import datetime
-from fastapi import APIRouter, Depends
-from app.api.deps import get_current_user
-from app.services.supabase_client import supabase_client
+from fastapi import APIRouter, HTTPException
 
-logger = logging.getLogger(__name__)
+from app.schemas.search import SearchResult
+from app.services.embedding import embedding_service
+from app.services.vector_store import VectorStoreNotConfigured, vector_store
+
+
 router = APIRouter()
+
+# Notes are split into chunks at index time, so the same note can produce
+# multiple matches. Pull more than top_k from Cloudflare and dedupe back down
+# to one result per note (keeping the best-scoring chunk).
+OVERSAMPLE = 5
+
+
+def _note_id_of(match: dict) -> str:
+    """The vector id is `note_id::chunk_index` for chunked entries; legacy
+    entries (single-vector-per-note) use the bare note id with no metadata."""
+    metadata = match.get("metadata") or {}
+    if metadata.get("note_id"):
+        return metadata["note_id"]
+    return match.get("id", "")
+
+
+_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 
 def _format_date(ts: str) -> str:
+    if not ts:
+        return ""
     try:
+        from datetime import datetime
         dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-        return f"{months[dt.month - 1]} {dt.day}, {dt.year}"
-    except Exception:
+        return f"{_MONTHS[dt.month - 1]} {dt.day}, {dt.year}"
+    except (ValueError, AttributeError):
         return ts[:10]
 
 
-def _make_preview(content: str, max_len: int = 200) -> str:
-    text = content.strip()
-    return text[:max_len] + ("..." if len(text) > max_len else "")
+@router.get("/", response_model=list[SearchResult])
+async def search(q: str, top_k: int = 10) -> list[SearchResult]:
+    [vector] = embedding_service.embed([q])
+    try:
+        matches = await vector_store.query(vector, top_k=top_k * OVERSAMPLE)
+    except VectorStoreNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    best_per_note: dict[str, dict] = {}
+    for m in matches:
+        note_id = _note_id_of(m)
+        if not note_id:
+            continue
+        prev = best_per_note.get(note_id)
+        if prev is None or float(m.get("score", 0.0)) > float(prev.get("score", 0.0)):
+            best_per_note[note_id] = m
 
-@router.get("/")
-async def search(
-    q: str,
-    top_k: int = 10,
-    user: dict = Depends(get_current_user),
-) -> list:
-    if not q.strip():
-        return []
+    deduped = sorted(
+        best_per_note.values(),
+        key=lambda m: -float(m.get("score", 0.0)),
+    )[:top_k]
 
-    user_id: str = user["id"]
-    notes = supabase_client.search_notes(user_id, q, limit=top_k)
-
-    results = []
-    for note in notes:
-        content = note.get("content", "")
-        results.append({
-            "id": note["id"],
-            "title": note["title"],
-            "preview": _make_preview(content),
-            "body": content,
-            "date": _format_date(note.get("created_at", "")),
-            "tags": [],
-            "source": note.get("source", "text"),
-            "relevance": note.get("relevance", 0.0),
-        })
-
+    results: list[SearchResult] = []
+    for m in deduped:
+        metadata = m.get("metadata") or {}
+        note_id = _note_id_of(m)
+        score = float(m.get("score", 0.0))
+        results.append(
+            SearchResult(
+                id=note_id,
+                note_id=note_id,
+                title=metadata.get("title", ""),
+                preview=metadata.get("snippet", ""),
+                date=_format_date(metadata.get("created_at", "")),
+                score=score,
+                relevance=score,
+            )
+        )
     return results

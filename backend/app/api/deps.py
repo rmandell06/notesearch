@@ -1,23 +1,22 @@
-from typing import Any
-import logging
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.services.supabase_client import supabase_client
+from fastapi import Header, HTTPException
 
-logger = logging.getLogger(__name__)
-auth_scheme = HTTPBearer()
+from app.services.supabase_client import SupabaseNotConfigured, supabase_client
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(auth_scheme),
-) -> dict[str, Any]:
-    """Validate Bearer token via Supabase and return {id: user_id}."""
-    token: str = credentials.credentials
-    user_id = supabase_client.get_user_id(token)
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return {"id": user_id}
+async def current_user(authorization: str | None = Header(default=None)) -> str:
+    """Validate the bearer token against Supabase and return the user id."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Empty bearer token")
+
+    try:
+        client = await supabase_client.client()
+    except SupabaseNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    user_resp = await client.auth.get_user(token)
+    if not user_resp or not user_resp.user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return user_resp.user.id

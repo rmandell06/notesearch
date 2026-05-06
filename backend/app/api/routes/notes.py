@@ -1,125 +1,322 @@
+import io
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from app.api.deps import get_current_user
-from app.services.supabase_client import supabase_client
+
+from app.api.deps import current_user
+from app.schemas.note import NoteCreate, NoteResponse
+from app.services.embedding import embedding_service
 from app.services.storage import storage_service
+from app.services.supabase_client import SupabaseNotConfigured, supabase_client
+from app.services.vector_store import VectorStoreNotConfigured, vector_store
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+TABLE = "notes"
+
+# Word-bounded chunking. ~200 words is roughly ~480 BPE tokens for English on
+# this tokenizer, which leaves margin under the encoder's max_seq_len=512 cap.
+# 32-word overlap so a sentence isn't sliced in half between chunks.
+CHUNK_WORDS = 200
+CHUNK_OVERLAP = 32
+
+PREVIEW_LEN = 200
 
 
-def _format_date(ts: str) -> str:
+def _config_error(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=503, detail=str(exc))
+
+
+async def _supabase():
     try:
-        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-        return f"{months[dt.month - 1]} {dt.day}, {dt.year}"
-    except Exception:
-        return ts[:10]
+        return await supabase_client.client()
+    except SupabaseNotConfigured as exc:
+        raise _config_error(exc) from exc
 
 
-def _make_preview(content: str, max_len: int = 200) -> str:
+def _chunk(text: str, size: int = CHUNK_WORDS, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """Split text into roughly token-bounded chunks at word boundaries."""
+    words = text.split()
+    if not words:
+        return [""]
+    chunks: list[str] = []
+    i = 0
+    step = max(size - overlap, 1)
+    while i < len(words):
+        chunks.append(" ".join(words[i : i + size]))
+        i += step
+    return chunks
+
+
+def _vector_id(note_id: str, chunk_index: int) -> str:
+    return f"{note_id}::{chunk_index}"
+
+
+def _make_preview(content: str, max_len: int = PREVIEW_LEN) -> str:
     text = content.strip()
     return text[:max_len] + ("..." if len(text) > max_len else "")
 
 
-def _note_to_response(note: dict) -> dict:
-    content = note.get("content", "")
-    return {
-        "id": note["id"],
-        "title": note["title"],
-        "preview": _make_preview(content),
-        "body": content,
-        "date": _format_date(note.get("created_at", "")),
-        "tags": [],
-        "source": note.get("source", "text"),
-        "created_at": note.get("created_at", ""),
-    }
+_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _format_date(ts: str | datetime | None) -> str:
+    """`Mar 30, 2026` from an ISO string or datetime; empty string on parse fail."""
+    if not ts:
+        return ""
+    if isinstance(ts, datetime):
+        dt = ts
+    else:
+        try:
+            dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        except ValueError:
+            return str(ts)[:10]
+    return f"{_MONTHS[dt.month - 1]} {dt.day}, {dt.year}"
+
+
+def _build_note_response(row: dict) -> NoteResponse:
+    content = row.get("content", "") or ""
+    return NoteResponse(
+        id=row["id"],
+        title=row.get("title", ""),
+        content=content,
+        body=content,
+        preview=_make_preview(content),
+        date=_format_date(row.get("created_at")),
+        created_at=row.get("created_at") or datetime.utcnow(),
+        source=row.get("source", "text"),
+    )
 
 
 def _extract_text(data: bytes, filename: str) -> str:
+    """Extract human-readable text from an uploaded file.
+
+    PDFs go through pdfplumber (handles Google Docs / non-standard producers
+    correctly where pypdf returns empty strings). Other file types decode
+    as UTF-8.
+
+    For PDFs we *never* fall back to UTF-8 on the raw bytes — that produces
+    garbled binary glued together by the codec error handler, which is then
+    indelibly stored in the notes table. Storing empty content is strictly
+    better: re-upload always works, garbage is forever."""
     name = (filename or "").lower()
+
     if name.endswith(".pdf"):
         try:
-            import io
-            from pypdf import PdfReader
-            reader = PdfReader(io.BytesIO(data))
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
-        except Exception as e:
-            logger.warning("PDF extraction failed for %s: %s", filename, e)
-    return data.decode("utf-8", errors="ignore")
+            import pdfplumber
+
+            with pdfplumber.open(io.BytesIO(data)) as pdf:
+                pages = [p.extract_text() or "" for p in pdf.pages]
+            text = "\n\n".join(pages).strip()
+        except Exception as exc:
+            logger.warning("PDF extraction failed for %s: %s", filename, exc)
+            text = ""
+        # Postgres TEXT columns reject NUL bytes; some PDF text streams smuggle
+        # them in. The encoder doesn't care and humans don't read them.
+        return text.replace("\x00", "")
+
+    return data.decode("utf-8", errors="ignore").replace("\x00", "")
 
 
-# /notes/upload must be defined before /{note_id} to avoid route shadowing
+async def _index_chunks(
+    note_id: str,
+    title: str,
+    content: str,
+    user_id: str,
+    created_at: str,
+    chunks: list[str],
+) -> None:
+    """Embed each chunk and upsert it into the vector index.
+
+    Failures here shouldn't lose the note — the row is already in Supabase,
+    and the user can re-index later. Caller decides whether the note had
+    chunks generated."""
+    if not chunks:
+        return
+    try:
+        vectors = embedding_service.embed([f"{title}\n{c}" for c in chunks])
+        await vector_store.upsert(
+            [
+                {
+                    "id": _vector_id(note_id, idx),
+                    "values": vec,
+                    "metadata": {
+                        "note_id": note_id,
+                        "chunk_index": idx,
+                        "title": title,
+                        "user_id": user_id,
+                        "snippet": chunk[:PREVIEW_LEN],
+                        "created_at": created_at,
+                    },
+                }
+                for idx, (chunk, vec) in enumerate(zip(chunks, vectors))
+            ]
+        )
+    except VectorStoreNotConfigured:
+        pass  # search will be unavailable until creds are set; note still saved
+
+
+# ── Note: declare /upload before /{note_id} so it doesn't get shadowed ────
+
+
 @router.post("/upload")
-async def upload_note(
+async def upload_file(
     file: UploadFile = File(...),
-    title: str = Form(default=None),
-    user: dict = Depends(get_current_user),
+    title: str | None = Form(default=None),
+    user_id: str = Depends(current_user),
 ) -> dict:
-    user_id: str = user["id"]
+    """Multipart upload: file body + optional title. Extracts text (PDF via
+    pypdf, plain text otherwise), saves the raw file to storage, creates the
+    note row, and indexes chunks."""
     data = await file.read()
     filename = file.filename or "upload"
-
     storage_key, _ = await storage_service.save(
-        data, filename, file.content_type or "text/plain"
+        data, filename, file.content_type or "application/octet-stream"
     )
     content = _extract_text(data, filename)
     note_title = title or filename
 
-    note_id = supabase_client.create_note(user_id, note_title, content, storage_key, "upload")
-    return {"id": note_id, "title": note_title, "status": "uploaded"}
+    chunks = _chunk(content)
+    client = await _supabase()
+    insert_resp = await (
+        client.table(TABLE)
+        .insert(
+            {
+                "user_id": user_id,
+                "title": note_title,
+                "content": content,
+                "storage_key": storage_key,
+                "source": "upload",
+                "chunk_count": len(chunks),
+            }
+        )
+        .execute()
+    )
+    if not insert_resp.data:
+        raise HTTPException(status_code=500, detail="Insert failed")
+    row = insert_resp.data[0]
+
+    await _index_chunks(
+        note_id=row["id"],
+        title=note_title,
+        content=content,
+        user_id=user_id,
+        created_at=row.get("created_at", ""),
+        chunks=chunks,
+    )
+
+    return {"id": row["id"], "title": note_title, "status": "uploaded"}
 
 
-@router.post("/")
+@router.post("/", response_model=NoteResponse)
 async def create_note(
-    title: str = Form(...),
-    content: str = Form(default=""),
-    user: dict = Depends(get_current_user),
-) -> dict:
-    user_id: str = user["id"]
-    note_id = supabase_client.create_note(user_id, title, content, None, "text")
-    return {"id": note_id, "title": title, "status": "created"}
+    note: NoteCreate,
+    user_id: str = Depends(current_user),
+) -> NoteResponse:
+    chunks = _chunk(note.content)
+
+    client = await _supabase()
+    insert_resp = await (
+        client.table(TABLE)
+        .insert(
+            {
+                "user_id": user_id,
+                "title": note.title,
+                "content": note.content,
+                "source": "text",
+                "chunk_count": len(chunks),
+            }
+        )
+        .execute()
+    )
+    if not insert_resp.data:
+        raise HTTPException(status_code=500, detail="Insert failed")
+    row = insert_resp.data[0]
+
+    await _index_chunks(
+        note_id=row["id"],
+        title=note.title,
+        content=note.content,
+        user_id=user_id,
+        created_at=row.get("created_at", ""),
+        chunks=chunks,
+    )
+
+    return _build_note_response(row)
 
 
-@router.get("/")
+@router.get("/", response_model=list[NoteResponse])
 async def list_notes(
     limit: int = 10,
-    user: dict = Depends(get_current_user),
-) -> list:
-    user_id: str = user["id"]
-    notes = supabase_client.list_notes(user_id, limit=limit)
-    return [_note_to_response(n) for n in notes]
+    user_id: str = Depends(current_user),
+) -> list[NoteResponse]:
+    client = await _supabase()
+    resp = await (
+        client.table(TABLE)
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return [_build_note_response(row) for row in (resp.data or [])]
 
 
-@router.get("/{note_id}")
+@router.get("/{note_id}", response_model=NoteResponse)
 async def get_note(
     note_id: str,
-    user: dict = Depends(get_current_user),
-) -> dict:
-    user_id: str = user["id"]
-    note = supabase_client.get_note(note_id, user_id)
-    if not note:
+    user_id: str = Depends(current_user),
+) -> NoteResponse:
+    client = await _supabase()
+    resp = await (
+        client.table(TABLE)
+        .select("*")
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not resp.data:
         raise HTTPException(status_code=404, detail="Note not found")
-    return _note_to_response(note)
+    return _build_note_response(resp.data)
 
 
 @router.delete("/{note_id}")
 async def delete_note(
     note_id: str,
-    user: dict = Depends(get_current_user),
+    user_id: str = Depends(current_user),
 ) -> dict:
-    user_id: str = user["id"]
-    note = supabase_client.get_note(note_id, user_id)
-    if not note:
+    client = await _supabase()
+    resp = await (
+        client.table(TABLE)
+        .delete()
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not resp.data:
         raise HTTPException(status_code=404, detail="Note not found")
 
-    supabase_client.delete_note(note_id, user_id)
+    deleted = resp.data[0]
+    chunk_count = deleted.get("chunk_count") or 0
+    if chunk_count > 0:
+        ids_to_delete = [_vector_id(note_id, i) for i in range(chunk_count)]
+    else:
+        ids_to_delete = [note_id]
 
-    if note.get("storage_key"):
+    storage_key = deleted.get("storage_key")
+    if storage_key:
         try:
-            await storage_service.delete(note["storage_key"])
-        except Exception as e:
-            logger.warning("Storage delete failed for %s: %s", note["storage_key"], e)
+            await storage_service.delete(storage_key)
+        except Exception as exc:
+            logger.warning("storage delete failed for %s: %s", storage_key, exc)
 
-    return {"deleted": True}
+    try:
+        await vector_store.delete(ids_to_delete)
+    except VectorStoreNotConfigured:
+        pass
+
+    return {"status": "deleted", "id": note_id}

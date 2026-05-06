@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 
@@ -117,6 +120,16 @@ class Encoder(nn.Module):
   def __init__(self, d_model, heads, dropout, ff_dim, num_layers, vocab_size, max_seq_len):
     super(Encoder, self).__init__()
 
+    self.config = {
+      "d_model": d_model,
+      "heads": heads,
+      "dropout": dropout,
+      "ff_dim": ff_dim,
+      "num_layers": num_layers,
+      "vocab_size": vocab_size,
+      "max_seq_len": max_seq_len,
+    }
+
     self.embedding = nn.Embedding(vocab_size, d_model)
     self.layers = nn.ModuleList([EncoderLayer(d_model, heads, dropout, ff_dim, max_seq_len) for _ in range(num_layers)])
     self.norm = nn.LayerNorm(d_model)
@@ -130,3 +143,20 @@ class Encoder(nn.Module):
     x = self.norm(x)
     x = torch.mean(x, dim=1)
     return x
+
+  def save(self, directory):
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    torch.save(self.state_dict(), directory / "encoder.pt")
+    with open(directory / "config.json", "w") as f:
+      json.dump(self.config, f, indent=2)
+
+  @classmethod
+  def load(cls, directory, map_location=None):
+    directory = Path(directory)
+    with open(directory / "config.json") as f:
+      config = json.load(f)
+    model = cls(**config)
+    model.load_state_dict(torch.load(directory / "encoder.pt", map_location=map_location))
+    model.eval()
+    return model
