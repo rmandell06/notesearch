@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { uploadFile } from "../api";
 
-export default function UploadArea() {
+export default function UploadArea({ onUploaded }) {
   const [dragging, setDragging] = useState(false);
   const [files, setFiles] = useState([]);
   const inputRef = useRef(null);
@@ -18,7 +18,10 @@ export default function UploadArea() {
   }
   function runUpload(id, file) {
     uploadFile(file)
-      .then(() => setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: "done" } : f))))
+      .then((result) => {
+        setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: "done" } : f)));
+        onUploaded?.(result);
+      })
       .catch((err) =>
         setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: "error", error: err.message } : f)))
       );

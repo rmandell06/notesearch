@@ -68,6 +68,14 @@ export function deleteNote(id) {
   return request(`/notes/${id}`, { method: "DELETE" });
 }
 
+export function updateNote(id, fields) {
+  return request(`/notes/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+}
+
 export function getConnections() {
   return request("/connections/");
 }

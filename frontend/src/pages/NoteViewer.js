@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import AppShell from "../components/AppShell";
 import MathText from "../components/MathText";
-import { getNote, getConnections, deleteNote } from "../api";
+import { getNote, getConnections, deleteNote, updateNote } from "../api";
 import { gradientClass } from "../lib/colors";
 import { safeBody } from "../lib/text";
 
@@ -28,6 +28,20 @@ export default function NoteViewer() {
     } catch (err) {
       setError(err.message || "Delete failed");
       setDeleting(false);
+    }
+  }
+
+  async function handleRename() {
+    if (!note) return;
+    const next = window.prompt("New title:", note.title);
+    if (next == null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === note.title) return;
+    try {
+      const updated = await updateNote(note.id, { title: trimmed });
+      setNote(updated);
+    } catch (err) {
+      setError(err.message || "Rename failed");
     }
   }
 
@@ -63,21 +77,30 @@ export default function NoteViewer() {
           ← Back
         </button>
         {note && !loading && (
-          <button
-            onClick={handleDelete}
-            disabled={deleting}
-            className="btn-ghost"
-            aria-label="Delete this note"
-            style={{ color: deleting ? "var(--ink-subtle)" : "var(--error)" }}
-            onMouseEnter={(e) => {
-              if (!deleting) e.currentTarget.style.background = "rgba(194,65,12,0.08)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "transparent";
-            }}
-          >
-            {deleting ? "Deleting…" : "Delete"}
-          </button>
+          <div className="row gap-2">
+            <button
+              onClick={handleRename}
+              className="btn-ghost"
+              aria-label="Rename this note"
+            >
+              Rename
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="btn-ghost"
+              aria-label="Delete this note"
+              style={{ color: deleting ? "var(--ink-subtle)" : "var(--error)" }}
+              onMouseEnter={(e) => {
+                if (!deleting) e.currentTarget.style.background = "rgba(194,65,12,0.08)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+              }}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </button>
+          </div>
         )}
       </div>
 

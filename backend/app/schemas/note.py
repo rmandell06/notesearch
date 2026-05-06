@@ -8,6 +8,13 @@ class NoteCreate(BaseModel):
     content: str
 
 
+class NoteUpdate(BaseModel):
+    """Partial update — any field omitted is left unchanged."""
+
+    title: str | None = None
+    content: str | None = None
+
+
 class NoteResponse(BaseModel):
     """Returned by /notes/* endpoints. `preview` and `date` are derived
     server-side so the frontend can render note cards without re-deriving

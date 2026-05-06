@@ -31,6 +31,7 @@ def stub_auth(monkeypatch: pytest.MonkeyPatch) -> None:
 def fake_table(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     chain = MagicMock()
     chain.insert.return_value = chain
+    chain.update.return_value = chain
     chain.select.return_value = chain
     chain.delete.return_value = chain
     chain.eq.return_value = chain
@@ -235,6 +236,38 @@ def test_get_note_404_when_missing(client, fake_table: MagicMock) -> None:
 
     resp = client.get("/notes/n-1", headers=AUTH)
     assert resp.status_code == 404
+
+
+def test_patch_note_renames(
+    client, fake_table: MagicMock
+) -> None:
+    fake_table.execute.return_value = SimpleNamespace(
+        data=[_row(content="Body")]
+    )
+    resp = client.patch(
+        "/notes/n-1", headers=AUTH, json={"title": "Renamed"}
+    )
+    assert resp.status_code == 200
+    fake_table.update.assert_called_with({"title": "Renamed"})
+    fake_table.eq.assert_any_call("id", "n-1")
+    fake_table.eq.assert_any_call("user_id", "u-1")
+
+
+def test_patch_note_404_when_missing(
+    client, fake_table: MagicMock
+) -> None:
+    fake_table.execute.return_value = SimpleNamespace(data=[])
+    resp = client.patch(
+        "/notes/n-1", headers=AUTH, json={"title": "X"}
+    )
+    assert resp.status_code == 404
+
+
+def test_patch_note_400_when_empty(
+    client, fake_table: MagicMock
+) -> None:
+    resp = client.patch("/notes/n-1", headers=AUTH, json={})
+    assert resp.status_code == 400
 
 
 def test_delete_note_drops_all_chunk_vectors(

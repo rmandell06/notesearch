@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.api.deps import current_user
-from app.schemas.note import NoteCreate, NoteResponse
+from app.schemas.note import NoteCreate, NoteResponse, NoteUpdate
 from app.services.embedding import embedding_service
 from app.services.storage import storage_service
 from app.services.supabase_client import SupabaseNotConfigured, supabase_client
@@ -314,6 +314,34 @@ async def get_note(
     if not resp.data:
         raise HTTPException(status_code=404, detail="Note not found")
     return _build_note_response(resp.data)
+
+
+@router.patch("/{note_id}", response_model=NoteResponse)
+async def update_note(
+    note_id: str,
+    update: NoteUpdate,
+    user_id: str = Depends(current_user),
+) -> NoteResponse:
+    """Partially update a note. Currently used for renames (title only) and
+    free-text edits (content). Title-only changes do not re-index vectors —
+    the existing chunk vectors keep their old title in metadata until the
+    note is re-uploaded. Acceptable trade-off for a demo; renaming hundreds
+    of notes a day would warrant a background re-index queue."""
+    fields = update.model_dump(exclude_none=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    client = await _supabase()
+    resp = await (
+        client.table(TABLE)
+        .update(fields)
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return _build_note_response(resp.data[0])
 
 
 @router.delete("/{note_id}")

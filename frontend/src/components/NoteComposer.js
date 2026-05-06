@@ -11,7 +11,7 @@ import MathText from "./MathText";
  * in real time, and clicks Create — which POSTs to /notes/ and navigates
  * to the new note's viewer page.
  */
-export default function NoteComposer({ onClose }) {
+export default function NoteComposer({ onClose, onCreated }) {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
@@ -25,6 +25,7 @@ export default function NoteComposer({ onClose }) {
     setError(null);
     try {
       const note = await createNote(title.trim(), content);
+      onCreated?.(note);
       navigate(`/note/${note.id}`);
     } catch (err) {
       setError(err.message || "Failed to create note");

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import AppShell from "../components/AppShell";
 import SearchBar from "../components/SearchBar";
@@ -22,8 +22,11 @@ export default function Home() {
     setMode((curr) => (curr === next ? "none" : next));
   }
 
-  useEffect(() => {
-    Promise.all([
+  // Single source of truth for fetching the home view. Called on mount and
+  // again whenever the composer / upload area finishes a successful add,
+  // so the library reflects the new note without a manual refresh.
+  const refresh = useCallback(() => {
+    return Promise.all([
       getRecentNotes()
         .then((data) => {
           const list = data.notes ?? data;
@@ -37,6 +40,13 @@ export default function Home() {
         .catch(() => {}),
     ]).finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  function handleAdded() {
+    setMode("none");
+    refresh();
+  }
 
   function handleSearch(q) {
     if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`);
@@ -85,12 +95,12 @@ export default function Home() {
 
       {mode === "compose" && (
         <section className="mb-12 rise">
-          <NoteComposer onClose={() => setMode("none")} />
+          <NoteComposer onClose={() => setMode("none")} onCreated={handleAdded} />
         </section>
       )}
       {mode === "upload" && (
         <section className="mb-12 rise">
-          <UploadArea />
+          <UploadArea onUploaded={handleAdded} />
         </section>
       )}
 
