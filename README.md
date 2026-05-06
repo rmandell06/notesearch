@@ -11,7 +11,7 @@ Sign up with any email + 8-character password, drop in a `.txt`, `.md`, or `.pdf
 A few caveats so you're not surprised:
 
 - **First request after idle is slow.** Render's free tier sleeps the container after 15 minutes of no traffic. The cold start takes ~30 seconds the first time you hit the site, then everything is fast for the rest of your session.
-- **Cloudflare Vectorize indexing has ~5 second latency.** Right after you upload a note, the search may not return it for a few seconds. Refresh and retry.
+- **Cloudflare Vectorize indexing has ~5 second latency.** Due to memory restrictions of Render, if you want to upload a note you must run it locally.
 - **Email confirmation is disabled** on the demo Supabase project, so any plausible email works for sign-up.
 - **Don't upload anything sensitive** — the demo runs on shared keys and the data sits in a project that may be wiped after grading.
 
