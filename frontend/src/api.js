@@ -56,6 +56,14 @@ export function uploadFile(file) {
   return request("/notes/upload", { method: "POST", body: form });
 }
 
+export function createNote(title, content) {
+  return request("/notes/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, content }),
+  });
+}
+
 export function getConnections() {
   return request("/connections/");
 }

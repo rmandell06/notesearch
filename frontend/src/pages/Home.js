@@ -4,17 +4,23 @@ import AppShell from "../components/AppShell";
 import SearchBar from "../components/SearchBar";
 import NoteCard from "../components/NoteCard";
 import UploadArea from "../components/UploadArea";
+import NoteComposer from "../components/NoteComposer";
 import StatsPanel from "../components/StatsPanel";
 import { getRecentNotes, getConnections } from "../api";
 
 const EMPTY_GRAPH = { nodes: [], links: [] };
 
 export default function Home() {
-  const [showUpload, setShowUpload] = useState(false);
+  // "none" | "compose" | "upload" — only one panel open at a time
+  const [mode, setMode] = useState("none");
   const [notes, setNotes] = useState([]);
   const [graph, setGraph] = useState(EMPTY_GRAPH);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+
+  function toggle(next) {
+    setMode((curr) => (curr === next ? "none" : next));
+  }
 
   useEffect(() => {
     Promise.all([
@@ -60,10 +66,16 @@ export default function Home() {
         </div>
         <div className="rise delay-4 row center mt-4 gap-3">
           <button
-            onClick={() => setShowUpload((v) => !v)}
-            className={showUpload ? "btn-ghost" : "btn-primary"}
+            onClick={() => toggle("compose")}
+            className={mode === "compose" ? "btn-ghost" : "btn-primary"}
           >
-            {showUpload ? "Close uploader" : "+ Upload note"}
+            {mode === "compose" ? "Close editor" : "+ New note"}
+          </button>
+          <button
+            onClick={() => toggle("upload")}
+            className={mode === "upload" ? "btn-ghost" : "btn-primary"}
+          >
+            {mode === "upload" ? "Close uploader" : "+ Upload file"}
           </button>
           <button onClick={() => navigate("/connections")} className="btn-ghost">
             View graph →
@@ -71,7 +83,12 @@ export default function Home() {
         </div>
       </section>
 
-      {showUpload && (
+      {mode === "compose" && (
+        <section className="mb-12 rise">
+          <NoteComposer onClose={() => setMode("none")} />
+        </section>
+      )}
+      {mode === "upload" && (
         <section className="mb-12 rise">
           <UploadArea />
         </section>
@@ -104,13 +121,14 @@ export default function Home() {
             <p className="muted" style={{ marginTop: 8, fontSize: 13 }}>
               Upload a note to get started — it'll appear here once indexed.
             </p>
-            <button
-              onClick={() => setShowUpload(true)}
-              className="btn-accent mt-4"
-              style={{ marginTop: 20 }}
-            >
-              + Upload your first note
-            </button>
+            <div className="row center gap-3" style={{ marginTop: 20 }}>
+              <button onClick={() => setMode("compose")} className="btn-accent">
+                + Write a note
+              </button>
+              <button onClick={() => setMode("upload")} className="btn-ghost">
+                or upload a file
+              </button>
+            </div>
           </div>
         ) : (
           <div className="grid-2 gap-3">
