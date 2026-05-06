@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import AppShell from "../components/AppShell";
+import MathText from "../components/MathText";
 import { getNote, getConnections } from "../api";
 import { gradientClass } from "../lib/colors";
 import { safeBody } from "../lib/text";
@@ -82,13 +83,13 @@ export default function NoteViewer() {
           </header>
 
           <div className="glass-2 r-xl mb-10" style={{ padding: 36 }}>
-            <pre className="serif" style={{
-              whiteSpace: "pre-wrap", lineHeight: 1.7,
+            <div className="serif" style={{
+              lineHeight: 1.7,
               fontVariationSettings: '"opsz" 14',
-              fontSize: 16, color: "var(--ink-soft)", margin: 0,
+              fontSize: 16, color: "var(--ink-soft)",
             }}>
-              {safeBody(note.body ?? note.content ?? note.raw_content ?? "")}
-            </pre>
+              <MathText text={safeBody(note.body ?? note.content ?? note.raw_content ?? "")} />
+            </div>
           </div>
 
           {related.length > 0 && (
