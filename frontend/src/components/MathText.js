@@ -1,5 +1,6 @@
 import katex from "katex";
 import "katex/dist/katex.min.css";
+import { preprocessLatex } from "../lib/latex";
 
 /**
  * Render text with embedded LaTeX as a mix of plain spans and KaTeX-rendered
@@ -70,13 +71,16 @@ function classify(match) {
 
 export default function MathText({ text }) {
   if (!text) return null;
+  // If the input is a full \documentclass…\end{document} dump, flatten it
+  // to readable plain text + math first. No-op for normal note text.
+  const cooked = preprocessLatex(text);
   const parts = [];
   let last = 0;
   PATTERN.lastIndex = 0;
   let m;
-  while ((m = PATTERN.exec(text)) !== null) {
+  while ((m = PATTERN.exec(cooked)) !== null) {
     if (m.index > last) {
-      parts.push({ type: "text", value: text.slice(last, m.index) });
+      parts.push({ type: "text", value: cooked.slice(last, m.index) });
     }
     const { tex, display } = classify(m[0]);
     const html = renderTeX(tex, display);
@@ -85,7 +89,7 @@ export default function MathText({ text }) {
       : { type: "text", value: m[0] });
     last = m.index + m[0].length;
   }
-  if (last < text.length) parts.push({ type: "text", value: text.slice(last) });
+  if (last < cooked.length) parts.push({ type: "text", value: cooked.slice(last) });
 
   return (
     <>
