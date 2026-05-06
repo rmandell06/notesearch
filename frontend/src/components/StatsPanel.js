@@ -47,7 +47,33 @@ export default function StatsPanel({ notes = [], graph = null }) {
       if (d > topDeg) { topDeg = d; topNode = nodes.find((n) => n.id === id) || null; }
     }
 
-    return { total, totalLinks, avgSim, maxSim, bySource, buckets, bucketsMax, topNode, topDeg };
+    // Activity sparkline — counts per local day for the last DAYS days,
+    // ordered oldest → newest. Notes whose date can't be parsed silently
+    // drop out (they're old fallback data or otherwise malformed).
+    const DAYS = 14;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dayBuckets = Array.from({ length: DAYS }, (_, i) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() - (DAYS - 1 - i));
+      return { date: d, count: 0 };
+    });
+    const dayMs = 24 * 60 * 60 * 1000;
+    for (const note of notes) {
+      const raw = note.created_at ?? note.date;
+      const ts = new Date(raw);
+      if (Number.isNaN(ts.getTime())) continue;
+      ts.setHours(0, 0, 0, 0);
+      const idx = DAYS - 1 - Math.floor((today - ts) / dayMs);
+      if (idx >= 0 && idx < DAYS) dayBuckets[idx].count++;
+    }
+    const dayMax = Math.max(1, ...dayBuckets.map((b) => b.count));
+    const recent7 = dayBuckets.slice(-7).reduce((s, b) => s + b.count, 0);
+
+    return {
+      total, totalLinks, avgSim, maxSim, bySource, buckets, bucketsMax,
+      topNode, topDeg, dayBuckets, dayMax, recent7,
+    };
   }, [notes, graph]);
 
   const sourceEntries = Object.entries(stats.bySource);
@@ -72,6 +98,9 @@ export default function StatsPanel({ notes = [], graph = null }) {
         <Stat label="Avg. similarity" value={pct(stats.avgSim)} muted />
         <Stat label="Strongest link" value={pct(stats.maxSim)} accent />
       </div>
+
+      {/* Activity sparkline — last 14 days of uploads */}
+      <Sparkline buckets={stats.dayBuckets} max={stats.dayMax} recent7={stats.recent7} />
 
       {/* Two viz blocks side by side */}
       <div className="grid-2 gap-6">
@@ -126,6 +155,70 @@ export default function StatsPanel({ notes = [], graph = null }) {
             </ul>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function Sparkline({ buckets, max, recent7 }) {
+  // SVG canvas — fixed viewBox; CSS scales it to container width.
+  const W = 560;
+  const H = 60;
+  const padX = 4;
+  const innerW = W - padX * 2;
+  const barW = innerW / buckets.length;
+  const gap = 3;
+  const firstLabel = buckets[0].date;
+  const lastLabel = buckets[buckets.length - 1].date;
+  const fmt = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+  return (
+    <div className="mb-8">
+      <div className="row between mb-3" style={{ alignItems: "baseline" }}>
+        <p className="eyebrow">Activity · last 14 days</p>
+        <p className="subtle" style={{ fontSize: 12 }}>
+          <span className="tabular" style={{ color: "var(--ink)", fontWeight: 500 }}>
+            {recent7}
+          </span>{" "}
+          this week
+        </p>
+      </div>
+
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%"
+        preserveAspectRatio="none"
+        style={{ display: "block", height: 60 }}
+        aria-label="Notes added per day, last 14 days"
+      >
+        {buckets.map((b, i) => {
+          const h = b.count === 0 ? 2 : Math.max(2, (b.count / max) * (H - 4));
+          const isToday = i === buckets.length - 1;
+          // Subtle warm-coral fade across the 14-day axis. Today is full-saturation accent.
+          const fill = isToday
+            ? "var(--accent)"
+            : `rgba(210, 74, 44, ${0.18 + (i / buckets.length) * 0.42})`;
+          return (
+            <rect
+              key={i}
+              x={padX + i * barW + gap / 2}
+              y={H - h - 2}
+              width={Math.max(2, barW - gap)}
+              height={h}
+              rx={2}
+              fill={fill}
+            >
+              <title>
+                {fmt(b.date)} — {b.count} note{b.count === 1 ? "" : "s"}
+              </title>
+            </rect>
+          );
+        })}
+      </svg>
+
+      <div className="row between mt-2 subtle" style={{ fontSize: 10 }}>
+        <span>{fmt(firstLabel)}</span>
+        <span>today · {fmt(lastLabel)}</span>
       </div>
     </div>
   );
