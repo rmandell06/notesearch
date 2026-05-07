@@ -6,7 +6,7 @@
 
 Notesearch is a semantic note-taking app built end-to-end for CS222 SP26. Drop in a `.txt`, `.md`, or `.pdf`; the backend chunks the text, runs it through **a transformer encoder we trained from scratch on NLI entailment pairs**, and stores the resulting 128-dimensional embeddings in Cloudflare Vectorize. Search re-encodes your query with the same model and returns the notes that share *intent* with it — not just words that overlap.
 
-## ✨ Highlights
+##  Highlights
 
 - **Semantic search.** A query like *"team progress check-in"* surfaces a meeting note titled *"Q2 planning"* without those keywords appearing.
 - **Custom encoder, not an off-the-shelf model.** 6-layer transformer with RoPE attention, SiLU/SwiGLU feed-forward blocks, a 10k-token BPE tokenizer we built ourselves, and ~3M parameters. Runs on CPU, no GPU required.
